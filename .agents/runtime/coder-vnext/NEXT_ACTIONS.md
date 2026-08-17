@@ -1,8 +1,28 @@
 # Next Actions
 
-1. Create the Node 24/pnpm strict TypeScript workspace, root commands, and
-   initial license/provenance material.
-2. Implement protocol/core state machines with tests before daemon code.
-3. Implement SQLite migrations, event append, and lease-fenced repositories.
-4. Build a deterministic vertical slice: fake provider → tool → validation →
-   evidence-gated continuation and completion rejection.
+The automated root matrix is green. Continue in this order; do not declare
+`TRUE_COMPLETE` while any item remains open.
+
+1. Extend `KP-004` from synthetic heartbeat evidence to delayed real
+   provider/tool plus competing-daemon takeover coverage; audit every
+   executor-owned lifecycle write for fencing.
+2. Add a delayed provider/tool plus live-SSE daemon shutdown regression and
+   prove pause/cancel aborts an active side effect (`KP-009`, `KP-014`).
+3. Exercise durable completion through all reachable HTTP/runtime paths for
+   unproven requirements, failed validation, and verifier-boundary misuse.
+4. Complete v2 protocol-entity API/SDK/restart roundtrips, task-graph restart
+   reconstruction, resource-lock recovery, and shared multi-agent budget/cost
+   attribution.
+5. Enforce permission/approval policy for workspace operations; retain default
+   command denial, symlink-safe paths, and locks; document or implement host
+   isolation.
+6. Compose context planner, OCF, checkpoint, worktree, and stagnation through
+   runtime/daemon flows, including continuation across restart.
+7. Prove CLI resume, local backend runtime wiring, remote/hybrid contracts,
+   Ottili adapter/BYOK, managed auth, and legacy feature compatibility.
+8. Expand the OCF benchmark with representative datasets and a documented
+   tokenizer strategy.
+9. Perform fresh documentation, dependency-license, provenance, and security
+   audits on the final worktree.
+10. Rerun the root matrix and direct daemon/takeover/SSE tests after the final
+    source change, then update the ledger only from that evidence.

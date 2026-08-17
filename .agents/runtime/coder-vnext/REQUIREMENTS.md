@@ -1,71 +1,80 @@
 # Ottili Coder vNext Requirement Ledger
 
-Status values: `UNPROVEN`, `PROVEN`, `CONTRADICTED`, `WAIVED`.
+This is an evidence snapshot of the current worktree on 2026-08-17. A result
+applies only to the source existing when it ran. `PROVEN` requires direct
+source plus test/inspection evidence; `UNPROVEN` is incomplete, component-only,
+or lacks a current direct validation. This ledger never authorizes completion.
 
-| ID | Requirement | Proof required | Status | Evidence |
-| --- | --- | --- | --- | --- |
-| R01 | Independent clean Ottili Coder repo | Separate Git root, no donor history | PROVEN | New Git repo on `main`; donors are sibling directories |
-| R02 | Selective functional OpenCode-derived runtime | Runtime/provider/tool integration tests | UNPROVEN | — |
-| R03 | No mandatory Bun runtime | Dependency scan and Node CI | UNPROVEN | — |
-| R04 | No OpenTUI runtime dependency | Dependency scan | UNPROVEN | — |
-| R05 | Node/pnpm build works | Root install/typecheck/build | UNPROVEN | — |
-| R06 | CLI is a thin client | Boundary tests and architecture audit | UNPROVEN | — |
-| R07 | Daemon owns execution | Detach/restart integration tests | UNPROVEN | — |
-| R08 | Run persists independently of Session | Persistence/restart test | UNPROVEN | — |
-| R09 | Durable Mission entity | Migration and repository tests | UNPROVEN | — |
-| R10 | Durable Goal entity | Migration and repository tests | UNPROVEN | — |
-| R11 | Goal auto-continues while active | Scheduler integration test | UNPROVEN | — |
-| R12 | Persistent Task Graph | Dependency/restart tests | UNPROVEN | — |
-| R13 | Persistent Agent Graph | Topology/restart tests | UNPROVEN | — |
-| R14 | Agent spawn/continue/wait/stop/resume | Lifecycle tests | UNPROVEN | — |
-| R15 | Run survives CLI disconnect | Daemon attach integration test | UNPROVEN | — |
-| R16 | Run survives daemon restart | Crash/recovery integration test | UNPROVEN | — |
-| R17 | Lease fencing prevents stale writes | Lease takeover test | UNPROVEN | — |
-| R18 | Checkpoint captures workspace | Git snapshot test | UNPROVEN | — |
-| R19 | Checkpoint captures untracked files | Untracked fixture test | UNPROVEN | — |
-| R20 | Checkpoint restore is transactional | Failure/rollback test | UNPROVEN | — |
-| R21 | Context exhaustion creates continuation | Session epoch test | UNPROVEN | — |
-| R22 | Structured provider recovery | Scripted-provider tests | UNPROVEN | — |
-| R23 | Stagnation detection | Repeated-failure test | UNPROVEN | — |
-| R24 | Requirement Ledger exists | Persistence/API tests | UNPROVEN | — |
-| R25 | Completion Gate exists | Completion tests | UNPROVEN | — |
-| R26 | Independent verification exists | Fresh verifier integration test | UNPROVEN | — |
-| R27 | Unproven requirements prevent completion | Completion rejection test | UNPROVEN | — |
-| R28 | Aider-style structural RepoMap exists | Ranking tests | UNPROVEN | — |
-| R29 | Kilo-style semantic index exists | Index startup/search tests | UNPROVEN | — |
-| R30 | Project Memory exists | Promotion/recall tests | UNPROVEN | — |
-| R31 | Context Planner exists | Budget/selection tests | UNPROVEN | — |
-| R32 | OCF exists | Codec tests | UNPROVEN | — |
-| R33 | OCF roundtrip is correct | Fuzz/roundtrip tests | UNPROVEN | — |
-| R34 | OCF token benchmark exists | Reproducible benchmark | UNPROVEN | — |
-| R35 | OCF delta mode exists or documented rejection | Delta tests/evidence | UNPROVEN | — |
-| R36 | Git service exists | Workspace tests | UNPROVEN | — |
-| R37 | Worktree manager exists | Lifecycle tests | UNPROVEN | — |
-| R38 | Sandbox abstraction exists | Capability/inheritance tests | UNPROVEN | — |
-| R39 | MCP exists | Lifecycle/permission tests | UNPROVEN | — |
-| R40 | LSP exists | Adapter/diagnostic tests | UNPROVEN | — |
-| R41 | Tool recovery metadata exists | Recovery metadata tests | UNPROVEN | — |
-| R42 | Resource locks exist | Contention tests | UNPROVEN | — |
-| R43 | Shared Run budget exists | Parent/child budget test | UNPROVEN | — |
-| R44 | Usage/cost accounting exists | Cost-record tests | UNPROVEN | — |
-| R45 | Ottili AI adapter exists | Contract tests | UNPROVEN | — |
-| R46 | Local BYOK works without login | Local provider test | UNPROVEN | — |
-| R47 | Ottili Auth managed-service boundary exists | Auth adapter tests | UNPROVEN | — |
-| R48 | Local execution backend works | End-to-end fixture test | UNPROVEN | — |
-| R49 | Remote/Hybrid contracts are testable | Deterministic takeover test | UNPROVEN | — |
-| R50 | Legacy feature matrix completed | `research/PORT_MATRIX.md` | UNPROVEN | — |
-| R51 | Useful current features are ported | Compatibility tests | UNPROVEN | — |
-| R52 | Legacy config import exists | Import fixture test | UNPROVEN | — |
-| R53 | Server API is typed | Protocol/server type tests | UNPROVEN | — |
-| R54 | SSE reconnect works | Last-Event-ID integration test | UNPROVEN | — |
-| R55 | TypeScript SDK works | SDK integration tests | UNPROVEN | — |
-| R56 | CLI attach/resume works | CLI end-to-end tests | UNPROVEN | — |
-| R57 | Doctor command exists | CLI smoke test | UNPROVEN | — |
-| R58 | Root validation commands exist | Script checks | UNPROVEN | — |
-| R59 | Recovery integration suite passes | Recovery suite | UNPROVEN | — |
-| R60 | OSS licensing/notices are correct | License audit | UNPROVEN | — |
-| R61 | Documentation matches implementation | Documentation audit | UNPROVEN | — |
-| R62 | No Claude Code source copied | Provenance scan/audit | UNPROVEN | — |
-| R63 | No donor repository embedded | Repository scan/audit | UNPROVEN | — |
-| R64 | No known critical/high defects remain | Problem ledger and audit | UNPROVEN | — |
-| R65 | Full final validation passes | Validation log | UNPROVEN | — |
+| ID  | Requirement                                                   | Status   | Current evidence / gap                                                                                                                                                                             |
+| --- | ------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R01 | Independent clean Ottili Coder repo                           | PROVEN   | Independent Git root and committed donor lock; donor working copies are outside the product tree.                                                                                                  |
+| R02 | Selective functional OpenCode-derived runtime                 | PROVEN   | Independent Node provider/tool loop is covered by current runtime and coordinator tests; no OpenCode tree is embedded.                                                                             |
+| R03 | No mandatory Bun runtime                                      | PROVEN   | Manifests/root scripts use Node 24/pnpm; dependency inventory has no Bun runtime dependency.                                                                                                       |
+| R04 | No OpenTUI runtime dependency                                 | PROVEN   | Execution packages have no OpenTUI dependency; matches are migration/research text only.                                                                                                           |
+| R05 | Node/pnpm build works                                         | PROVEN   | Current Node 24 `pnpm typecheck` and `pnpm build` pass.                                                                                                                                            |
+| R06 | CLI is a thin client                                          | PROVEN   | `apps/cli` delegates Run operations to `@ottili/sdk`; acceptance/lifecycle tests use the HTTP daemon.                                                                                              |
+| R07 | Daemon owns execution                                         | PROVEN   | `DurableDaemon` owns SQLite, scheduler, and HTTP server; bundled daemon lifecycle test starts a separate process.                                                                                  |
+| R08 | Run persists independently of Session                         | PROVEN   | SQLite projections and recovery test reopen durable Run state independently of session epochs.                                                                                                     |
+| R09 | Mission exists as durable entity                              | PROVEN   | `missions` projection, Store getter, and server create/read path are transactional.                                                                                                                |
+| R10 | Goal exists as durable entity                                 | PROVEN   | `goals` projection and restart recovery prove durable active Goal state.                                                                                                                           |
+| R11 | Goal auto-continues while active                              | PROVEN   | Durable `scheduled_actions` plus scheduler/requeue/resume tests exercise continuation.                                                                                                             |
+| R12 | Task Graph persists                                           | UNPROVEN | Tasks/dependencies are modeled, but no restart test proves dependency graph/readiness reconstruction.                                                                                              |
+| R13 | Agent Graph persists                                          | PROVEN   | Parent/child edge persists and is reconstructed in daemon-restart coverage.                                                                                                                        |
+| R14 | Agent spawn/continue/wait/stop/resume                         | PROVEN   | Agent lifecycle, mailbox, and supervisor component tests cover these operations.                                                                                                                   |
+| R15 | Run survives CLI disconnect                                   | PROVEN   | E2E creates a Run through one CLI and attaches with a fresh client.                                                                                                                                |
+| R16 | Run survives daemon restart                                   | PROVEN   | Recovery test reconstructs Mission/Run/Goal/Agent/Event state and takes over the old lease.                                                                                                        |
+| R17 | Lease fencing prevents duplicate executor writes              | UNPROVEN | Historic 10 ms duplicate execution is remediated: a current 90 ms turn over a 30 ms TTL permits no successor claim. Daemon/provider-tool takeover and full lifecycle-write audit are still absent. |
+| R18 | Checkpoint captures workspace correctly                       | PROVEN   | Git private-ref capture/restore tests cover staged and unstaged workspace state.                                                                                                                   |
+| R19 | Checkpoint handles untracked files                            | PROVEN   | Workspace checkpoint test explicitly captures/restores an untracked file.                                                                                                                          |
+| R20 | Checkpoint restore is transactional                           | PROVEN   | Rollback test restores workspace and durable-state fixture after state failure.                                                                                                                    |
+| R21 | Context exhaustion creates continuation instead of ending Run | PROVEN   | Coordinator integration persists `ContextSnapshot`, keeps the Run running, and supplies the handoff to the next epoch.                                                                             |
+| R22 | Provider errors have structured recovery                      | UNPROVEN | Taxonomy/retry and overflow paths are tested, but complete durable, lease-safe recovery/failover coverage is missing.                                                                              |
+| R23 | Stagnation detection exists                                   | UNPROVEN | `assessStagnation` is unit tested; no live coordinator transition uses it.                                                                                                                         |
+| R24 | Requirement Ledger exists                                     | PROVEN   | This ledger plus SQLite requirements/evidence projections and strong-evidence guard are implemented/tested.                                                                                        |
+| R25 | Completion Gate exists                                        | PROVEN   | CompletionGate unit/integration paths require requirements, validations, and verifier input.                                                                                                       |
+| R26 | Independent verification exists                               | PROVEN   | Injectable verifier and bundled deterministic verifier both pass the current coordinator completion path.                                                                                          |
+| R27 | Run cannot complete with unproven required requirements       | PROVEN   | Direct Store regression proves `proposeCompletion` leaves the Run running and rechecks requirements, validations, and verifier acceptance.                                                         |
+| R28 | Aider-style structural RepoMap exists                         | PROVEN   | Deterministic ranked token-bounded RepoMap is unit tested.                                                                                                                                         |
+| R29 | Kilo-style semantic index exists                              | PROVEN   | Startup/search/update/unavailable fallback are unit tested.                                                                                                                                        |
+| R30 | Project Memory exists                                         | PROVEN   | Redaction, validation-gated promotion, and recall are unit tested.                                                                                                                                 |
+| R31 | Context Planner exists                                        | PROVEN   | Planner ordering, token budget, and omission behavior are unit tested.                                                                                                                             |
+| R32 | OCF exists                                                    | PROVEN   | OCF/1 codec and profiles are implemented and unit tested.                                                                                                                                          |
+| R33 | OCF roundtrip is correct                                      | PROVEN   | Typed roundtrip, malformed input, Unicode/delimiter, and deterministic fuzz coverage pass.                                                                                                         |
+| R34 | OCF token benchmark exists                                    | UNPROVEN | Benchmark exists but lacks the required representative datasets and provider-relevant tokenizer comparison.                                                                                        |
+| R35 | OCF delta mode exists or documented rejection                 | PROVEN   | Structural deltas, canonical hashes, serialization, and application are implemented/tested.                                                                                                        |
+| R36 | Git service exists                                            | PROVEN   | Git status, rename parsing, private refs, and safe restore are tested.                                                                                                                             |
+| R37 | Worktree manager exists                                       | PROVEN   | Linked-worktree create/list/remove with primary-worktree protection is tested.                                                                                                                     |
+| R38 | Sandbox abstraction exists                                    | PROVEN   | Profile/capability behavior is tested; coordinator enforces declared persisted permission/sandbox policy before lock, intent, or execution. OS isolation remains a deployment limitation.          |
+| R39 | MCP exists                                                    | PROVEN   | Declarative config, conservative mapping, reconnect supervision, and streamable HTTP RPC are unit tested.                                                                                          |
+| R40 | LSP exists                                                    | PROVEN   | Framing, initialization, diagnostics, requests, shutdown, and dynamic-loader rejection are unit tested.                                                                                            |
+| R41 | Tool recovery metadata exists                                 | PROVEN   | Intent/outcome rows and idempotency/recovery metadata are recorded; crash reconciliation is tested.                                                                                                |
+| R42 | Resource locks exist                                          | PROVEN   | Store conflict tests cover same-daemon/different-Run workspace scopes; runtime tool dispatch locks workspace-namespaced scopes.                                                                    |
+| R43 | Shared Run budget exists                                      | UNPROVEN | Run-owned fenced provider/tool counters and limits are wired, but concurrent multi-agent attribution/enforcement lacks a direct regression.                                                        |
+| R44 | Usage/cost accounting exists                                  | PROVEN   | Fenced runtime usage/cost recording and durable cost projection are in source with Store projection coverage.                                                                                      |
+| R45 | Ottili AI adapter exists                                      | UNPROVEN | `OttiliAiAdapter` source boundary exists but lacks a focused contract test.                                                                                                                        |
+| R46 | Local BYOK works without Ottili login                         | UNPROVEN | OpenAI-compatible provider accepts a key and is unit mocked; configuration-to-provider BYOK flow is untested.                                                                                      |
+| R47 | Ottili Auth integration exists for managed services           | UNPROVEN | Managed-auth interface exists, not an authenticated managed-service flow.                                                                                                                          |
+| R48 | Local execution backend works                                 | UNPROVEN | Local backend command component test passes; it is not proven as runtime's end-to-end backend.                                                                                                     |
+| R49 | Remote/Hybrid interfaces exist and are testable               | UNPROVEN | Interfaces/classes exist without deterministic remote/hybrid contract tests.                                                                                                                       |
+| R50 | Legacy Coder feature matrix completed                         | PROVEN   | `research/PORT_MATRIX.md` classifies each audited legacy capability and decision.                                                                                                                  |
+| R51 | Useful current Coder features are ported                      | UNPROVEN | Boundaries exist, but no full compatibility audit proves the intended useful feature set.                                                                                                          |
+| R52 | Legacy config migration/import exists                         | PROVEN   | Preview-first, non-destructive import is unit tested.                                                                                                                                              |
+| R53 | Server API is typed                                           | UNPROVEN | Protocol DTOs and HTTP/SDK types pass current typecheck; API integration covers approval resolve, agent events, and SSE basics, but full endpoint/restore/error coverage is missing.               |
+| R54 | SSE reconnect works                                           | UNPROVEN | Last-Event-ID/history reconnect and active-SSE shutdown pass integration; reconnect across dropped/restarted daemon paths lacks direct coverage.                                                   |
+| R55 | TypeScript SDK works                                          | UNPROVEN | SDK approval resolution and daemon integration pass typecheck/tests, but its full surface lacks independent endpoint/error coverage.                                                               |
+| R56 | CLI supports attach/resume                                    | UNPROVEN | Attach and approval resolution are tested; explicit resume still lacks lifecycle acceptance coverage.                                                                                              |
+| R57 | Doctor command exists                                         | PROVEN   | `doctor` parses/reports environment and daemon descriptor state.                                                                                                                                   |
+| R58 | Root lint/typecheck/test/build commands exist                 | PROVEN   | Final frozen Node 24 matrix passes lint, format, typecheck, 69 unit, 14 integration, recovery/e2e, boundaries, build, benchmark, and package smoke.                                                |
+| R59 | Recovery integration suite passes                             | PROVEN   | Current `pnpm test:recovery` passes (1/1).                                                                                                                                                         |
+| R60 | OSS licensing/notices are correct                             | UNPROVEN | License/donor lock/notices exist; an independent dependency-license release audit has not occurred.                                                                                                |
+| R61 | README and architecture docs match implementation             | UNPROVEN | Docs exist; a final implementation-to-documentation audit remains required.                                                                                                                        |
+| R62 | No Claude Code source copied                                  | PROVEN   | Snapshot was unavailable/excluded; provenance/repository audit records no reuse.                                                                                                                   |
+| R63 | No donor repository accidentally embedded                     | PROVEN   | Product tree inventory shows no donor checkout; research clones sit outside the product Git root.                                                                                                  |
+| R64 | No known critical/high defects remain                         | UNPROVEN | Historic high-severity reproductions are remediated and cooperative lifecycle/policy paths are tested, but daemon takeover and final security/completeness audits remain open.                     |
+| R65 | Full final validation passes                                  | UNPROVEN | Final frozen automated matrix passes, but delayed real provider/tool competing-daemon takeover and final documentation/license/provenance/security audits remain unproven.                         |
+
+## Required completion condition
+
+Keep the Goal active. Resolve every `UNPROVEN` item with direct evidence,
+rerun the final matrix on the final worktree, and only then reconsider
+`TRUE_COMPLETE`.

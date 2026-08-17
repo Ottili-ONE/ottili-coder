@@ -27,14 +27,14 @@ Pinned donor: `cline/cline` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Root checkpoint timing/semantic numbering | ADAPT | `checkpoint-hooks.ts`, hook tests |
-| Git tracked/untracked capture | ADAPT implementation pattern | `checkpoint-hooks.ts` |
-| Restore transaction | ADAPT then REWRITE API | `checkpoint-restore.ts`, versioning tests |
-| Checkpoint canonical storage | REWRITE | Use durable metadata/CAS plus Git optimization |
-| Successful destructive restore UX | REWRITE | Explicit impact/policy/approval requirements |
-| Completion guard | DROP as authority | `agents/src/agent-runtime.ts` |
+| Area                                      | Decision                     | Important donor paths/tests                    |
+| ----------------------------------------- | ---------------------------- | ---------------------------------------------- |
+| Root checkpoint timing/semantic numbering | ADAPT                        | `checkpoint-hooks.ts`, hook tests              |
+| Git tracked/untracked capture             | ADAPT implementation pattern | `checkpoint-hooks.ts`                          |
+| Restore transaction                       | ADAPT then REWRITE API       | `checkpoint-restore.ts`, versioning tests      |
+| Checkpoint canonical storage              | REWRITE                      | Use durable metadata/CAS plus Git optimization |
+| Successful destructive restore UX         | REWRITE                      | Explicit impact/policy/approval requirements   |
+| Completion guard                          | DROP as authority            | `agents/src/agent-runtime.ts`                  |
 
 ## Provenance boundary
 

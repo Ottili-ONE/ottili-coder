@@ -35,16 +35,16 @@ Pinned donor: `openai/codex` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Goal identity/version CAS | ADAPT concept | `state/src/{model/thread_goal,runtime/goals}.rs` |
-| Idle continuation | ADAPT then REWRITE durable scheduler | `ext/goal/src/{extension,runtime}.rs` |
-| Budget accounting | ADAPT concept | `ext/goal/src/accounting.rs` |
-| Blocked semantics | REWRITE | donor only supplies prompt guidance; enforce persistent repeated blockers |
-| Agent graph | ADAPT model | `agent-graph-store/*`, `state/migrations/0021_thread_spawn_edges.sql` |
-| Events/replay | ADAPT model | `rollout/{recorder,policy,ordinal}.rs` |
-| Lease/fencing | REWRITE | listener generation is process-local only |
-| Sandbox policy | ADAPT | `sandboxing/*`, `core/src/sandboxing/*` |
+| Area                      | Decision                             | Important donor paths/tests                                               |
+| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| Goal identity/version CAS | ADAPT concept                        | `state/src/{model/thread_goal,runtime/goals}.rs`                          |
+| Idle continuation         | ADAPT then REWRITE durable scheduler | `ext/goal/src/{extension,runtime}.rs`                                     |
+| Budget accounting         | ADAPT concept                        | `ext/goal/src/accounting.rs`                                              |
+| Blocked semantics         | REWRITE                              | donor only supplies prompt guidance; enforce persistent repeated blockers |
+| Agent graph               | ADAPT model                          | `agent-graph-store/*`, `state/migrations/0021_thread_spawn_edges.sql`     |
+| Events/replay             | ADAPT model                          | `rollout/{recorder,policy,ordinal}.rs`                                    |
+| Lease/fencing             | REWRITE                              | listener generation is process-local only                                 |
+| Sandbox policy            | ADAPT                                | `sandboxing/*`, `core/src/sandboxing/*`                                   |
 
 ## Required differences
 

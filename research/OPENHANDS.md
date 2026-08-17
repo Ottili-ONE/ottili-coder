@@ -35,15 +35,15 @@ Pinned donors: `OpenHands/OpenHands` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Event journal/projections | ADAPT semantic pattern | SDK `conversation/{event_store,state}.py` |
-| Branch/replay | ADAPT | `local_conversation.py`, event-tree tests |
-| Leases/fencing | ADAPT then strengthen | `conversation_lease.py`, contention tests |
-| Unfinished side effects | ADAPT | `state.py`, `event_service.py` |
-| Execution backend contract | ADAPT | `workspace/{base,remote}/*` |
-| Goal judge/critic | ADAPT interfaces; REWRITE authority | `goal/*`, critic tests |
-| File-lock/JSON storage | DROP | unsuitable as distributed Run coordination |
+| Area                       | Decision                            | Important donor paths/tests                |
+| -------------------------- | ----------------------------------- | ------------------------------------------ |
+| Event journal/projections  | ADAPT semantic pattern              | SDK `conversation/{event_store,state}.py`  |
+| Branch/replay              | ADAPT                               | `local_conversation.py`, event-tree tests  |
+| Leases/fencing             | ADAPT then strengthen               | `conversation_lease.py`, contention tests  |
+| Unfinished side effects    | ADAPT                               | `state.py`, `event_service.py`             |
+| Execution backend contract | ADAPT                               | `workspace/{base,remote}/*`                |
+| Goal judge/critic          | ADAPT interfaces; REWRITE authority | `goal/*`, critic tests                     |
+| File-lock/JSON storage     | DROP                                | unsuitable as distributed Run coordination |
 
 ## Provenance boundary
 

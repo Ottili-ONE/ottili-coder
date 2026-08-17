@@ -35,16 +35,16 @@ Pinned donor: `anomalyco/opencode` `v1.18.18` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Node runtime/build | DROP | `packages/opencode/{package.json,script/build.ts}` |
-| Provider contract/events | ADAPT | `src/provider/provider.ts`, `src/session/llm*.ts`, `test/provider/*` |
-| Tool/permission concepts | ADAPT | `src/tool/*`, `src/permission/*`, `test/tool/*` |
-| Durable Run layer | REWRITE | `packages/core/src/{event,session}.ts` |
-| Retry/compaction policy | ADAPT then REWRITE | `src/session/{retry,compaction,processor}.ts` |
-| MCP/LSP adapters | ADAPT | `src/mcp/*`, `src/lsp/*`, related tests |
-| Git/worktree/snapshot | ADAPT then REWRITE lifecycle | `src/{git,worktree,snapshot}/*` |
-| OpenCode branding/cloud/plugin autoload | DROP | provider/plugin/build/UI paths |
+| Area                                    | Decision                     | Important donor paths/tests                                          |
+| --------------------------------------- | ---------------------------- | -------------------------------------------------------------------- |
+| Node runtime/build                      | DROP                         | `packages/opencode/{package.json,script/build.ts}`                   |
+| Provider contract/events                | ADAPT                        | `src/provider/provider.ts`, `src/session/llm*.ts`, `test/provider/*` |
+| Tool/permission concepts                | ADAPT                        | `src/tool/*`, `src/permission/*`, `test/tool/*`                      |
+| Durable Run layer                       | REWRITE                      | `packages/core/src/{event,session}.ts`                               |
+| Retry/compaction policy                 | ADAPT then REWRITE           | `src/session/{retry,compaction,processor}.ts`                        |
+| MCP/LSP adapters                        | ADAPT                        | `src/mcp/*`, `src/lsp/*`, related tests                              |
+| Git/worktree/snapshot                   | ADAPT then REWRITE lifecycle | `src/{git,worktree,snapshot}/*`                                      |
+| OpenCode branding/cloud/plugin autoload | DROP                         | provider/plugin/build/UI paths                                       |
 
 ## Provenance boundary
 

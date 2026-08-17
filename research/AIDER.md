@@ -27,14 +27,14 @@ Pinned donor: `Aider-AI/aider` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Structural RepoMap graph/ranking | REIMPLEMENT algorithm | `aider/repomap.py`, `tests/basic/test_repomap.py` |
-| Tag cache | ADAPT then strengthen | `repomap.py` cache paths/logic |
-| Git worktree/status/commit concepts | ADAPT | `aider/repo.py`, repo tests |
-| Undo | REWRITE transactionally | `aider/commands.py`, `base_coder.py` |
-| Checkpoint format | DROP as source | Aider only tracks session commits |
-| Voice | ADAPT client boundary | `aider/voice.py`, voice tests |
+| Area                                | Decision                | Important donor paths/tests                       |
+| ----------------------------------- | ----------------------- | ------------------------------------------------- |
+| Structural RepoMap graph/ranking    | REIMPLEMENT algorithm   | `aider/repomap.py`, `tests/basic/test_repomap.py` |
+| Tag cache                           | ADAPT then strengthen   | `repomap.py` cache paths/logic                    |
+| Git worktree/status/commit concepts | ADAPT                   | `aider/repo.py`, repo tests                       |
+| Undo                                | REWRITE transactionally | `aider/commands.py`, `base_coder.py`              |
+| Checkpoint format                   | DROP as source          | Aider only tracks session commits                 |
+| Voice                               | ADAPT client boundary   | `aider/voice.py`, voice tests                     |
 
 ## Ottili implementation target
 

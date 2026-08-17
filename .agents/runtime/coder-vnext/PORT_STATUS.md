@@ -1,11 +1,27 @@
 # Port Status
 
-| Area | Primary donor | Decision | Status |
-| --- | --- | --- | --- |
-| Provider/tool runtime | OpenCode | Selectively adapt Node-capable concepts | research |
-| Durable goals/agent graph | OpenAI Codex | Independently implement architecture | research |
-| Event log/leases | OpenHands | Independently implement database model | research |
-| Checkpoints | Cline | Independently implement transactional Git snapshots | research |
-| RepoMap/Git | Aider | Reimplement algorithms in TypeScript | research |
-| Semantic index/memory/sandbox | Kilo | Adapt independently with portable abstractions | research |
-| Legacy UX/integrations | Current Ottili Coder | Preserve useful public behavior through new runtime | research |
+Donors supplied research patterns, not copied source. Status describes the
+independently written implementation and its current evidence.
+
+| Area                                     | Primary donor / reference               | Ottili-native decision                                                                                                     | Status                                                                                                                                            |
+| ---------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider/tool runtime                    | OpenCode                                | Node-native provider contract, OpenAI-compatible transport, turn engine, durable tool envelope, bounded durable transcript | Coordinator integration proves history/steering replay, overflow handoff, and default verifier; broad recovery/failover remains open.             |
+| Durable Mission/Goal/Agent control plane | OpenAI Codex                            | SQLite Mission → Run → Goal/Task/Agent hierarchy with continuations/session epochs                                         | Core projections and restart path pass; task-graph restart and multi-agent execution proof remain open.                                           |
+| Event log, leases, and command receipts  | OpenHands                               | SQLite WAL sequence, receipts, leases, workspace-scoped locks, durable wakes                                               | Slow-turn heartbeat, shutdown drain, durable completion, and lock-conflict regressions pass; daemon/provider-tool takeover coverage remains open. |
+| Checkpoints and recovery                 | Cline                                   | Private Git refs, transactional restore, recovery classification                                                           | Component/recovery tests pass; daemon-level checkpoint orchestration remains a composition gap.                                                   |
+| RepoMap and Git intelligence             | Aider                                   | Structural TypeScript RepoMap, Git service, linked worktree manager                                                        | Implemented and unit tested.                                                                                                                      |
+| Index, memory, and sandbox               | Kilo                                    | Lexical/vector-ready index, validated memory, context planner, portable sandbox profiles                                   | Components are tested; sandbox profile is not a host-isolation guarantee.                                                                         |
+| OCF context format                       | Independent synthesis                   | OCF/1 codec, typed schemas, deltas, benchmark scaffolding                                                                  | Codec/delta tests and benchmark run pass; required tokenizer/dataset evidence remains open.                                                       |
+| MCP and LSP                              | OpenCode / current Coder                | Declarative supervised MCP and stdio/JSON-RPC LSP boundaries                                                               | Implemented/unit tested; server binaries/OAuth are deployment responsibilities.                                                                   |
+| Server, SSE, SDK, and daemon             | Current Coder / OpenHands               | Versioned local HTTP/SSE daemon, thin SDK, bundled local entrypoint                                                        | API/SDK approval resolution, history reconnect basics, and real lifecycle pass; live-SSE shutdown/reconnect breadth remains open.                 |
+| Legacy CLI/config UX                     | Current Ottili Coder                    | Disposable CLI, attach/resume, approval handling, preview-first importer                                                   | Command/import paths exist; explicit resume and compatibility acceptance audit remain open.                                                       |
+| Ottili AI, BYOK, managed auth            | Current Coder / Ottili boundary         | OpenAI-compatible BYOK plus named managed-auth adapter boundary                                                            | Source boundaries exist; end-to-end BYOK and managed-auth flows are unproven.                                                                     |
+| Local/remote/hybrid execution            | Current Coder / architecture references | Local command backend plus typed remote/hybrid interfaces                                                                  | Local component test passes; runtime wiring and remote/hybrid contract tests remain open.                                                         |
+| Full durable protocol entities           | Ottili-native                           | v2 projections for milestones, decisions, problems, artifacts, costs, recovery, snapshots, memory, approvals               | Store/migration tests and API/SDK approval roundtrip pass; comprehensive API/SDK restart/roundtrip coverage remains open.                         |
+
+## Non-port decisions
+
+- Bun and OpenTUI are deliberately excluded from the execution runtime.
+- No donor repository or donor Git history is imported into the product tree.
+- Claude Code is reference-only; its snapshot was unavailable and no source is authorized for reuse.
+- A managed cloud control plane, OAuth credential vault, container/VM sandbox, and bundled LSP binaries are not silently claimed by this local source tree.

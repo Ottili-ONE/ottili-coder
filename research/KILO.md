@@ -33,15 +33,15 @@ Pinned donor: `Kilo-Org/kilocode` at
 
 ## Decisions
 
-| Area | Decision | Important donor paths/tests |
-| --- | --- | --- |
-| Incremental semantic indexing | ADAPT then REWRITE search/job persistence | `packages/kilo-indexing/src/indexing/*`, `test/kilocode/indexing/*` |
-| Worktree index overlay | ADAPT | `worktree-overlay.ts`, `search-service.ts` |
-| Project memory safety | ADAPT capture/redaction; REWRITE persistence | `packages/kilo-memory/{storage,recall,capture}/*` |
-| Sandbox profiles/path/network | ADAPT | `packages/kilo-sandbox/src/*`, sandbox tests |
-| Provider error/compaction cases | ADAPT test cases | `packages/opencode/src/{provider,error,session/retry}.ts` |
-| Daemon file/health hygiene | ADAPT | `packages/opencode/src/kilocode/daemon/*` |
-| VS Code Agent Manager | DROP | extension-owned async state |
+| Area                            | Decision                                     | Important donor paths/tests                                         |
+| ------------------------------- | -------------------------------------------- | ------------------------------------------------------------------- |
+| Incremental semantic indexing   | ADAPT then REWRITE search/job persistence    | `packages/kilo-indexing/src/indexing/*`, `test/kilocode/indexing/*` |
+| Worktree index overlay          | ADAPT                                        | `worktree-overlay.ts`, `search-service.ts`                          |
+| Project memory safety           | ADAPT capture/redaction; REWRITE persistence | `packages/kilo-memory/{storage,recall,capture}/*`                   |
+| Sandbox profiles/path/network   | ADAPT                                        | `packages/kilo-sandbox/src/*`, sandbox tests                        |
+| Provider error/compaction cases | ADAPT test cases                             | `packages/opencode/src/{provider,error,session/retry}.ts`           |
+| Daemon file/health hygiene      | ADAPT                                        | `packages/opencode/src/kilocode/daemon/*`                           |
+| VS Code Agent Manager           | DROP                                         | extension-owned async state                                         |
 
 ## Provenance boundary
 
