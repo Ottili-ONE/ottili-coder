@@ -1,0 +1,48 @@
+{
+  "name": "ottili-coder-vnext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ottili Coder — the open-source long-horizon coding agent.",
+  "type": "module",
+  "bin": {
+    "ottili-coder": "./dist/apps/cli/src/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "clean": "node scripts/clean.mjs",
+    "dev": "tsx apps/cli/src/main.ts",
+    "doctor": "tsx apps/cli/src/main.ts doctor",
+    "lint": "eslint --max-warnings=0 apps packages tests scripts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --exclude 'tests/integration/**' --exclude 'tests/e2e/**' --exclude 'tests/recovery/**'",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "test:recovery": "vitest run tests/recovery",
+    "test:package": "node scripts/package-smoke.mjs",
+    "bench": "tsx scripts/bench.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.27.0",
+    "eslint": "^9.39.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^4.0.8"
+  }
+}

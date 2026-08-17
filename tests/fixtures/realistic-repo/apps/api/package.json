@@ -1,0 +1,13 @@
+{
+  "name": "@fixture/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@fixture/checkout": "workspace:*"
+  },
+  "scripts": {
+    "test": "tsx --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit"
+  }
+}

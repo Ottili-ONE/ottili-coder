@@ -1,0 +1,13 @@
+{
+  "name": "ottili-coder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ottili/integrations": "workspace:*",
+    "@ottili/protocol": "workspace:*",
+    "@ottili/runtime": "workspace:*",
+    "@ottili/sdk": "workspace:*",
+    "@ottili/server": "workspace:*"
+  }
+}

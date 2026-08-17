@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/money",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "tsx --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit"
+  }
+}

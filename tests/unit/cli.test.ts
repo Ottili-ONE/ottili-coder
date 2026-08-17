@@ -1,0 +1,254 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { Mission, MissionId, Run, RunId } from "@ottili/protocol";
+import {
+  inspectDaemon,
+  readDaemonDescriptor,
+  stopDaemon,
+  writeDaemonDescriptor,
+} from "../../apps/cli/src/daemon-client.js";
+import { runCli, type CliWriter } from "../../apps/cli/src/commands.js";
+import { afterEach, describe, expect, it } from "vitest";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map(
+        async (directory) =>
+          await rm(directory, { force: true, recursive: true }),
+      ),
+  );
+});
+
+class BufferWriter implements CliWriter {
+  readonly chunks: string[] = [];
+  readonly isTTY: boolean;
+
+  public constructor(isTTY = false) {
+    this.isTTY = isTTY;
+  }
+
+  public write(chunk: string): boolean {
+    this.chunks.push(chunk);
+    return true;
+  }
+
+  public text(): string {
+    return this.chunks.join("");
+  }
+}
+
+const run: Run = {
+  budget: {},
+  createdAt: "2026-08-17T00:00:00.000Z",
+  id: "run-1111-2222-3333-4444" as RunId,
+  missionId: "mission-1111-2222-3333-4444" as MissionId,
+  revision: 1,
+  status: "running",
+  title: "Ship the client",
+  updatedAt: "2026-08-17T00:00:00.000Z",
+  usage: {
+    cachedTokens: 0,
+    childAgents: 0,
+    costUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    toolCalls: 0,
+    wallTimeMs: 0,
+  },
+};
+
+const mission: Mission = {
+  createdAt: run.createdAt,
+  id: run.missionId,
+  prompt: "Ship the client",
+  title: run.title,
+  updatedAt: run.updatedAt,
+  workspaceUri: "file:///workspace",
+};
+
+function success(value: unknown): Response {
+  return new Response(JSON.stringify({ ok: true, value }), {
+    headers: { "content-type": "application/json" },
+    status: 200,
+  });
+}
+
+describe("thin CLI client", () => {
+  it("creates a Run through the daemon API without local execution state", async () => {
+    const requests: Array<{
+      readonly body?: string;
+      readonly method?: string;
+      readonly url: string;
+    }> = [];
+    const output = new BufferWriter();
+    const exit = await runCli(
+      ["run", "Ship", "the", "client", "--workspace", "/workspace", "--json"],
+      {
+        cwd: () => "/working-directory",
+        environment: { OTTILI_CODER_DAEMON_URL: "http://daemon.test" },
+        fetch: async (input, init) => {
+          const body = typeof init?.body === "string" ? init.body : undefined;
+          const method = init?.method;
+          requests.push({
+            url: String(input),
+            ...(body === undefined ? {} : { body }),
+            ...(method === undefined ? {} : { method }),
+          });
+          return success({ mission, run });
+        },
+        stdout: output,
+      },
+    );
+
+    expect(exit).toBe(0);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      method: "POST",
+      url: "http://daemon.test/v1/runs",
+    });
+    expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
+      mission: { prompt: "Ship the client", workspaceUri: "file:///workspace" },
+    });
+    expect(JSON.parse(output.text())).toMatchObject({ run: { id: run.id } });
+  });
+
+  it("reattaches from persisted events and exits cleanly in a non-interactive pipe", async () => {
+    const output = new BufferWriter(false);
+    const calls: string[] = [];
+    const exit = await runCli(["attach", run.id, "--after", "0"], {
+      environment: { OTTILI_CODER_DAEMON_URL: "http://daemon.test" },
+      fetch: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith(`/v1/runs/${run.id}`))
+          return success({ agents: [], run });
+        if (url.endsWith(`/v1/runs/${run.id}/events?after=0`))
+          return success({ events: [], nextSequence: 0 });
+        throw new Error(`Unexpected request ${url}`);
+      },
+      stdout: output,
+    });
+
+    expect(exit).toBe(0);
+    expect(calls).toEqual([
+      `http://daemon.test/v1/runs/${run.id}`,
+      `http://daemon.test/v1/runs/${run.id}/events?after=0`,
+    ]);
+    expect(output.text()).toContain(`Agents: 0`);
+  });
+
+  it("resolves a durable approval through the daemon instead of mutating local state", async () => {
+    const output = new BufferWriter();
+    const approvalId = "approval_0000000000000";
+    const exit = await runCli(
+      [
+        "approvals",
+        "resolve",
+        run.id,
+        approvalId,
+        "approved",
+        "--resolver",
+        "operator@example.test",
+        "--json",
+      ],
+      {
+        environment: { OTTILI_CODER_DAEMON_URL: "http://daemon.test" },
+        fetch: async (input, init) => {
+          expect(String(input)).toBe(
+            `http://daemon.test/v1/runs/${run.id}/approvals/${approvalId}`,
+          );
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            resolverId: "operator@example.test",
+            status: "approved",
+          });
+          return success({
+            approval: {
+              createdAt: run.createdAt,
+              id: approvalId,
+              requestedAt: run.createdAt,
+              resolverId: "operator@example.test",
+              runId: run.id,
+              status: "approved",
+              summary: "Publish release",
+              updatedAt: run.updatedAt,
+            },
+          });
+        },
+        stdout: output,
+      },
+    );
+
+    expect(exit).toBe(0);
+    expect(JSON.parse(output.text())).toMatchObject({
+      approval: { id: approvalId, status: "approved" },
+    });
+  });
+
+  it("reports usage errors with a nonzero process result", async () => {
+    const stderr = new BufferWriter();
+    await expect(runCli(["run", "--unknown"], { stderr })).resolves.toBe(2);
+    expect(stderr.text()).toContain("Unknown option --unknown");
+  });
+});
+
+describe("daemon descriptor discovery", () => {
+  it("atomically persists only daemon discovery metadata and probes readiness", async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), "ottili-cli-daemon-"));
+    temporaryDirectories.push(configDirectory);
+    await writeDaemonDescriptor(
+      {
+        pid: process.pid,
+        schemaVersion: 1,
+        startedAt: "2026-08-17T00:00:00.000Z",
+        url: "http://daemon.test",
+        version: "0.1.0",
+      },
+      configDirectory,
+    );
+
+    await expect(readDaemonDescriptor(configDirectory)).resolves.toMatchObject({
+      url: "http://daemon.test",
+    });
+    const status = await inspectDaemon({
+      configDirectory,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/health"))
+          return success({ status: "ok", version: "v1" });
+        if (url.endsWith("/v1/ready")) return success({ ready: true });
+        throw new Error(`Unexpected request ${url}`);
+      },
+    });
+    expect(status).toMatchObject({
+      pidAlive: true,
+      reachable: true,
+      ready: true,
+      url: "http://daemon.test",
+    });
+  });
+
+  it("will not signal a legacy descriptor without a daemon instance identity", async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), "ottili-cli-daemon-"));
+    temporaryDirectories.push(configDirectory);
+    await writeDaemonDescriptor(
+      {
+        pid: process.pid,
+        schemaVersion: 1,
+        startedAt: "2026-08-17T00:00:00.000Z",
+        url: "http://daemon.test",
+      },
+      configDirectory,
+    );
+
+    await expect(stopDaemon({ configDirectory })).rejects.toThrow(
+      "no immutable daemon identity",
+    );
+  });
+});
