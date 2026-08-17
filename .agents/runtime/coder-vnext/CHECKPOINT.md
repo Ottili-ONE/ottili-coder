@@ -11,7 +11,7 @@ ACTIVE — no terminal stop level has been reached.
 
 ## Current milestone
 
-M1: donor research synthesis and independent-repository foundation.
+M2: Node/pnpm monorepo and durable control-plane foundation.
 
 ## Completed milestones
 
@@ -20,23 +20,24 @@ M1: donor research synthesis and independent-repository foundation.
 - Cloned and pinned all accessible required donor repositories.
 - Recorded unavailable reference/platform donors without treating them as blockers.
 - Completed parallel, read-only initial donor/architecture/repository audits.
+- Synthesized donor, provenance, port, and architecture matrices.
 
 ## Open milestones
 
-- Synthesize donor findings and feature-port decisions.
 - Establish the strict Node/pnpm monorepo and test foundation.
 - Build durable control plane, runtime, recovery, context, server, CLI, and integrations.
 - Execute full validation, fresh audits, and final report.
 
 ## Active implementation
 
-Writing donor research artifacts and the initial WUID requirement ledger before
-any product-runtime implementation.
+Establishing the strict Node/pnpm workspace, package boundaries, and unit-test
+foundation before the daemon/control-plane vertical slice.
 
 ## Active validation
 
-Workspace separation, donor commit pinning, toolchain discovery, and donor
-license inspection completed. No product build/test command has run yet.
+Workspace separation, donor pinning, license inspection, and research
+synthesis completed. Node's SQLite API has been verified in the local Node 24
+runtime. No product build/test command has run yet.
 
 ## Current blockers
 
@@ -59,8 +60,9 @@ non-blocking and are documented in `DONOR_STATUS.md`.
   — succeeded at `31406ccc51b4bd2a4e1e086b2bcaa5f7f804f26d`.
 - donor `LICENSE` header inspection — all accessible donor licenses recorded.
 - `/opt/node24/bin/node --version` — `v24.19.0` available.
+- Node SQLite in-memory create/insert/select probe — succeeded with `ok`.
 
 ## Exact resume action
 
-Read this file, `REQUIREMENTS.md`, and `NEXT_ACTIONS.md`; then complete the
-research synthesis artifacts and implement the Node/pnpm foundation.
+Read this file, `REQUIREMENTS.md`, and `NEXT_ACTIONS.md`; then implement the
+Node/pnpm foundation and durable control-plane vertical slice.
