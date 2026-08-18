@@ -1,4 +1,8 @@
 import {
+  parseRetryAfterHeader,
+  permissiveToolSchema,
+} from "./provider-http.js";
+import {
   ProviderFailure,
   type ProviderTurnRequest,
   type ProviderTurnResponse,
@@ -66,7 +70,7 @@ export class OpenAiCompatibleTurnProvider implements TurnProvider {
             function: {
               description: tool.description,
               name: tool.name,
-              parameters: { additionalProperties: true, type: "object" },
+              parameters: permissiveToolSchema(),
             },
             type: "function",
           })),
@@ -151,7 +155,9 @@ export class OpenAiCompatibleTurnProvider implements TurnProvider {
 
 async function responseFailure(response: Response): Promise<ProviderFailure> {
   const raw = await response.text().catch(() => "");
-  const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+  const retryAfterMs = parseRetryAfterHeader(
+    response.headers.get("retry-after"),
+  );
   const message =
     raw.length === 0
       ? `Provider returned HTTP ${response.status}.`
@@ -212,14 +218,4 @@ function isOpenAiTurnPayload(value: unknown): value is OpenAiTurnPayload {
     typeof value === "object" &&
     ("choices" in value || "usage" in value)
   );
-}
-
-function parseRetryAfter(value: string | null): number | undefined {
-  if (value === null) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? undefined
-    : Math.max(0, timestamp - Date.now());
 }

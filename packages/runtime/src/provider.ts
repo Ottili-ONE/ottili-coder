@@ -47,10 +47,34 @@ export function classifyProviderFailure(error: unknown): ProviderFailure {
   );
 }
 
-export function retryDelayMs(attempt: number, retryAfterMs?: number): number {
+export interface RetryDelayOptions {
+  /** Fraction of the backoff to randomize, in `[0, 1]`. */
+  readonly jitterRatio?: number;
+  /** Injectable so the delay stays deterministic under test. */
+  readonly random?: () => number;
+}
+
+/**
+ * Exponential backoff with full-width jitter on the final portion.
+ *
+ * A provider-supplied `Retry-After` is authoritative and returned unchanged;
+ * everything else is jittered so a fleet of daemons that were rate-limited
+ * together does not retry in lockstep and re-trigger the same limit.
+ */
+export function retryDelayMs(
+  attempt: number,
+  retryAfterMs?: number,
+  options: RetryDelayOptions = {},
+): number {
   if (retryAfterMs !== undefined) return retryAfterMs;
   const boundedAttempt = Math.max(0, Math.min(attempt, 6));
-  return Math.min(30_000, 1_000 * 2 ** boundedAttempt);
+  const base = Math.min(30_000, 1_000 * 2 ** boundedAttempt);
+  const jitterRatio = options.jitterRatio ?? 0;
+  if (jitterRatio <= 0) return base;
+  const random = options.random ?? Math.random;
+  const spread = base * Math.min(1, jitterRatio);
+  const jittered = base - spread + random() * spread * 2;
+  return Math.round(Math.max(0, Math.min(30_000, jittered)));
 }
 
 export interface RuntimeMessage {

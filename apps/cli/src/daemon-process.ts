@@ -7,23 +7,106 @@ import { fileURLToPath } from "node:url";
 
 import { DurableDaemon } from "@ottili/server";
 import {
-  OpenAiCompatibleTurnProvider,
+  ProviderConfigurationError,
   ProviderFailure,
   RunCoordinator,
+  createProviderRuntime,
   createWorkspaceTools,
+  type ProviderConfig,
+  type ProviderKind,
   type TurnProvider,
 } from "@ottili/runtime";
 
 const defaultDaemonUrl = "http://127.0.0.1:7411";
 
+/**
+ * A Run whose provider is not configured must wait for an operator rather than
+ * fail: the durable Run outlives the misconfiguration, so an authentication
+ * failure parks it in `waiting_external` instead of ending the mission.
+ */
 class UnconfiguredProvider implements TurnProvider {
   public readonly id = "unconfigured";
 
+  public constructor(private readonly reason: string) {}
+
   public async complete(): Promise<never> {
-    throw new ProviderFailure(
-      "authentication",
-      "No provider is configured. Set OTTILI_PROVIDER_ENDPOINT and OTTILI_PROVIDER_API_KEY, then resume the durable Run.",
-    );
+    throw new ProviderFailure("authentication", this.reason);
+  }
+}
+
+const PROVIDER_KINDS: readonly ProviderKind[] = [
+  "anthropic",
+  "google",
+  "openai",
+  "openai-compatible",
+  "openrouter",
+  "ottili",
+];
+
+function providerKindFromEnvironment(): ProviderKind | undefined {
+  const configured = process.env.OTTILI_PROVIDER;
+  if (configured === undefined) {
+    // A bare endpoint keeps working the way it always has.
+    return process.env.OTTILI_PROVIDER_ENDPOINT === undefined
+      ? undefined
+      : "openai-compatible";
+  }
+  return PROVIDER_KINDS.find((kind) => kind === configured);
+}
+
+function providerConfigFromEnvironment(): ProviderConfig | undefined {
+  const kind = providerKindFromEnvironment();
+  if (kind === undefined) return undefined;
+  return {
+    kind,
+    ...(process.env.OTTILI_PROVIDER_API_KEY === undefined
+      ? {}
+      : { apiKey: process.env.OTTILI_PROVIDER_API_KEY }),
+    ...(process.env.OTTILI_PROVIDER_ENDPOINT === undefined
+      ? {}
+      : { endpoint: process.env.OTTILI_PROVIDER_ENDPOINT }),
+  };
+}
+
+/** Comma-separated fallback kinds, each using its own default credential. */
+function fallbackConfigsFromEnvironment(): readonly ProviderConfig[] {
+  const configured = process.env.OTTILI_PROVIDER_FALLBACKS;
+  if (configured === undefined) return [];
+  return configured
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .flatMap((value) => {
+      const kind = PROVIDER_KINDS.find((candidate) => candidate === value);
+      return kind === undefined ? [] : [{ kind }];
+    });
+}
+
+function resolveProviderRuntime(): {
+  readonly model: string;
+  readonly provider: TurnProvider;
+} {
+  const model = process.env.OTTILI_MODEL ?? "default";
+  const providerConfig = providerConfigFromEnvironment();
+  if (providerConfig === undefined) {
+    return {
+      model,
+      provider: new UnconfiguredProvider(
+        "No provider is configured. Set OTTILI_PROVIDER (anthropic, google, openai, openai-compatible, openrouter, ottili) with its credential, then resume the durable Run.",
+      ),
+    };
+  }
+  try {
+    return createProviderRuntime({
+      fallbacks: fallbackConfigsFromEnvironment(),
+      model,
+      provider: providerConfig,
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProviderConfigurationError) {
+      return { model, provider: new UnconfiguredProvider(error.message) };
+    }
+    throw error;
   }
 }
 
@@ -33,24 +116,14 @@ async function main(): Promise<void> {
     process.env.OTTILI_CODER_CONFIG_DIR ?? join(homedir(), ".ottili", "coder");
   await mkdir(configDirectory, { recursive: true, mode: 0o700 });
   const fallbackWorkspace = process.env.OTTILI_CODER_WORKSPACE ?? process.cwd();
-  const endpoint = process.env.OTTILI_PROVIDER_ENDPOINT;
-  const provider: TurnProvider =
-    endpoint === undefined
-      ? new UnconfiguredProvider()
-      : new OpenAiCompatibleTurnProvider({
-          ...(process.env.OTTILI_PROVIDER_API_KEY === undefined
-            ? {}
-            : { apiKey: process.env.OTTILI_PROVIDER_API_KEY }),
-          endpoint,
-          id: "configured-openai-compatible",
-        });
+  const { model, provider } = resolveProviderRuntime();
   const daemon = new DurableDaemon({
     allowProtocolShutdown: true,
     databasePath:
       process.env.OTTILI_CODER_DATABASE ?? join(configDirectory, "coder.db"),
     executor: (store) =>
       new RunCoordinator(store, {
-        model: process.env.OTTILI_MODEL ?? "default",
+        model,
         provider,
         tools: ({ workspaceUri }) =>
           createWorkspaceTools({

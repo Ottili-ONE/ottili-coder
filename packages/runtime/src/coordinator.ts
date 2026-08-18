@@ -57,6 +57,8 @@ export interface RunCoordinatorOptions {
   readonly contextCompiler?: ContextCompiler;
   readonly context?: RunContextCompilerOptions;
   readonly independentVerifier?: IndependentVerifier;
+  /** Retryable provider failures beyond this park the Run for an operator. */
+  readonly maxProviderAttempts?: number;
   readonly maxToolCalls?: number;
   readonly model: string;
   readonly provider: TurnProvider;
@@ -76,6 +78,7 @@ export type WorkspaceToolResolver = (input: {
 export class RunCoordinator implements RunActionExecutor {
   private readonly completionGate: CompletionGate;
   private readonly contextCompiler: ContextCompiler;
+  private readonly maxProviderAttempts: number;
 
   public constructor(
     private readonly store: RunStore,
@@ -89,6 +92,7 @@ export class RunCoordinator implements RunActionExecutor {
     this.contextCompiler =
       options.contextCompiler ??
       new RunContextCompiler(store, options.context ?? {});
+    this.maxProviderAttempts = options.maxProviderAttempts ?? 6;
   }
 
   public async execute(input: {
@@ -538,6 +542,29 @@ export class RunCoordinator implements RunActionExecutor {
     return attempts;
   }
 
+  /**
+   * Counts provider failures since the last turn that actually produced
+   * something. Any assistant message, finished tool call, or recorded
+   * validation resets the count, because those prove the provider path works.
+   */
+  private consecutiveProviderFailures(runId: RunId): number {
+    let failures = 0;
+    for (const event of [...this.store.listEvents(runId)].reverse()) {
+      if (event.type === "provider.failed") {
+        failures += 1;
+        continue;
+      }
+      if (
+        event.type === "agent.message" ||
+        event.type === "tool.call_finished" ||
+        event.type === "validation.finished"
+      ) {
+        break;
+      }
+    }
+    return failures;
+  }
+
   /** A pause/cancel is not a provider outage and must never schedule a retry. */
   private handleAbort(
     lease: RunLease,
@@ -786,8 +813,16 @@ export class RunCoordinator implements RunActionExecutor {
       });
       return { requeue: true };
     }
-    if (failure.retryable) {
-      const delay = retryDelayMs(action.attempt, failure.retryAfterMs);
+    // Backoff must follow consecutive provider trouble, not the Run's total
+    // continuation count: a healthy long-horizon Run accumulates many
+    // continuations and must not inherit a long delay or a spent retry budget.
+    const consecutiveFailures = this.consecutiveProviderFailures(action.runId);
+    if (failure.retryable && consecutiveFailures <= this.maxProviderAttempts) {
+      // Jitter keeps a fleet that was rate-limited together from retrying in
+      // lockstep and immediately re-triggering the same limit.
+      const delay = retryDelayMs(consecutiveFailures, failure.retryAfterMs, {
+        jitterRatio: 0.25,
+      });
       this.store.scheduleWake({
         lease,
         runId: action.runId,
@@ -795,19 +830,38 @@ export class RunCoordinator implements RunActionExecutor {
       });
       this.store.appendFencedEvent({
         lease,
-        payload: { delayMs: delay, kind: failure.kind },
+        payload: {
+          consecutiveFailures,
+          delayMs: delay,
+          kind: failure.kind,
+        },
         type: "run.retry_scheduled",
       });
       return { requeue: false };
     }
-    // Non-retryable provider failures need a human/alternate provider rather
-    // than silently ending a durable Run.
-    this.store.transitionRun({
-      lease,
-      reason: `Provider failure: ${failure.kind}`,
+
+    // Either the failure is the request's fault or retrying has stopped
+    // helping. Park the Run for an operator or an alternate provider instead
+    // of ending a mission because one call failed, and record why.
+    this.store.recordProblem({
+      alternateActionAvailable: failure.retryable,
+      externalDependency: true,
+      fingerprint: `provider:${failure.kind}`,
+      meaningful: true,
+      note: failure.message.slice(0, 500),
       runId: action.runId,
-      to: "waiting_external",
+      summary: failure.retryable
+        ? `Provider kept failing with '${failure.kind}' after ${consecutiveFailures} consecutive attempts.`
+        : `Provider failure '${failure.kind}' needs operator or provider configuration input.`,
     });
+    if (this.store.getRun(action.runId)?.status === "running") {
+      this.store.transitionRun({
+        lease,
+        reason: `Provider failure: ${failure.kind}`,
+        runId: action.runId,
+        to: "waiting_external",
+      });
+    }
     return { requeue: false };
   }
 }
