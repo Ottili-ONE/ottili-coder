@@ -7,10 +7,19 @@ import {
   ResourceLockConflictError,
   RunScheduler,
   RunStore,
+  LATEST_SCHEMA_VERSION,
   SqliteDatabase,
   type Clock,
 } from "@ottili/control-plane";
 import { describe, expect, it } from "vitest";
+
+/** Every version from 1 to the latest, so a new migration needs no test edit. */
+function schemaVersionLadder(): readonly number[] {
+  return Array.from(
+    { length: LATEST_SCHEMA_VERSION },
+    (_value, index) => index + 1,
+  );
+}
 
 class FakeClock implements Clock {
   public constructor(private instant = new Date("2026-08-17T00:00:00.000Z")) {}
@@ -186,27 +195,38 @@ describe("RunStore durable control plane", () => {
       prompt: "Persist a full run.",
       workspaceUri: "file:///repo",
     });
+    // Executor-owned projections are lease-fenced, so this test holds a lease
+    // exactly the way the coordinator does.
+    const lease = store.acquireLease({
+      executorId: "projection-test",
+      runId: run.id,
+      ttlMs: 60_000,
+    });
     const task = store.createTask({
       description: "A durable task",
       runId: run.id,
       title: "Task",
     });
     const milestone = store.createMilestone({
+      lease,
       runId: run.id,
       taskIds: [task.id],
       title: "Milestone",
     });
     const decision = store.recordDecision({
+      lease,
       rationale: "Evidence first",
       runId: run.id,
       title: "Decision",
     });
     const artifact = store.addArtifact({
       label: "report",
+      lease,
       runId: run.id,
       uri: "file:///repo/report.txt",
     });
     const change = store.recordGitChange({
+      lease,
       repositoryUri: "file:///repo",
       revision: "abc",
       runId: run.id,
@@ -239,6 +259,7 @@ describe("RunStore durable control plane", () => {
       runId: run.id,
     });
     const recovery = store.setRecoveryState({
+      lease,
       runId: run.id,
       status: "required",
       unknownToolCallIds: ["tool_unknown"],
@@ -298,7 +319,9 @@ describe("RunStore durable control plane", () => {
       const versions = upgraded.all(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(versions.map((row) => row.version)).toEqual([1, 2, 3]);
+      // Every version from 1 to the latest must be applied, in order, so a
+      // new migration cannot silently skip an older journal.
+      expect(versions.map((row) => row.version)).toEqual(schemaVersionLadder());
       upgraded.close();
     } finally {
       await rm(directory, { force: true, recursive: true });
@@ -334,7 +357,7 @@ describe("RunStore durable control plane", () => {
         database
           .all("SELECT version FROM schema_migrations ORDER BY version")
           .map((row) => row.version),
-      ).toEqual([1, 2, 3]);
+      ).toEqual(schemaVersionLadder());
       const upgraded = new RunStore(database);
       expect(upgraded.getRun(created.run.id)).toMatchObject({
         id: created.run.id,

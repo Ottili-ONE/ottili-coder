@@ -3,16 +3,16 @@ import { DatabaseSync } from "node:sqlite";
 export type SqlParameter = Uint8Array | bigint | null | number | string;
 export type SqlRow = Readonly<Record<string, unknown>>;
 
-export const LATEST_SCHEMA_VERSION = 3;
+export const LATEST_SCHEMA_VERSION = 4;
 
 /** Test-only migration target makes upgrade paths directly regression-testable. */
 export interface SqliteDatabaseOptions {
-  readonly migrationTargetVersion?: 1 | 2 | 3;
+  readonly migrationTargetVersion?: 1 | 2 | 3 | 4;
 }
 
 export class SqliteDatabase {
   private readonly connection: DatabaseSync;
-  private readonly migrationTargetVersion: 1 | 2 | 3;
+  private readonly migrationTargetVersion: 1 | 2 | 3 | 4;
 
   public constructor(path: string, options: SqliteDatabaseOptions = {}) {
     this.connection = new DatabaseSync(path);
@@ -566,6 +566,26 @@ export class SqliteDatabase {
       `);
         this.run(
           "INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)",
+          new Date().toISOString(),
+        );
+      });
+
+    if (this.migrationTargetVersion === 3) return;
+
+    if (!this.hasMigration(4))
+      this.transaction(() => {
+        // Resource locks were held by executor id alone. A daemon that reuses
+        // its executor id across restarts could therefore release the locks of
+        // the generation that replaced it, so ownership now includes the
+        // fencing generation.
+        this.connection.exec(`
+        ALTER TABLE resource_locks ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0;
+
+        CREATE INDEX idx_resource_locks_holder
+          ON resource_locks(run_id, holder_id, lease_generation);
+      `);
+        this.run(
+          "INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)",
           new Date().toISOString(),
         );
       });

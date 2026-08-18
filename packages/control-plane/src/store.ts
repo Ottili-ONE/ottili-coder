@@ -283,6 +283,7 @@ export interface UnknownToolCall {
 
 export interface RecordProblemInput {
   readonly alternateActionAvailable: boolean;
+  readonly lease?: FencedLease;
   readonly externalDependency: boolean;
   readonly fingerprint: string;
   readonly meaningful?: boolean;
@@ -523,6 +524,7 @@ export class RunStore {
   }
 
   public createMilestone(input: {
+    readonly lease: FencedLease;
     readonly runId: RunId;
     readonly status?: Milestone["status"];
     readonly taskIds?: readonly TaskId[];
@@ -531,6 +533,7 @@ export class RunStore {
     const now = this.timestamp();
     const id = createId("milestone", `${input.runId}:${randomUUID()}`);
     return this.database.transaction(() => {
+      this.assertRunLeaseInternal(input.lease, input.runId, now);
       for (const taskId of input.taskIds ?? []) {
         if (this.mustTask(taskId).runId !== input.runId) {
           throw new Error("Milestone tasks must belong to the same Run.");
@@ -567,6 +570,7 @@ export class RunStore {
 
   public recordDecision(input: {
     readonly alternatives?: readonly string[];
+    readonly lease: FencedLease;
     readonly evidenceIds?: readonly string[];
     readonly rationale: string;
     readonly runId: RunId;
@@ -574,6 +578,7 @@ export class RunStore {
   }): Decision {
     const now = this.timestamp();
     const id = createId("decision", `${input.runId}:${randomUUID()}`);
+    this.assertRunLeaseInternal(input.lease, input.runId, now);
     this.database.run(
       `INSERT INTO decisions (id, run_id, title, rationale, alternatives_json, evidence_ids_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -700,6 +705,7 @@ export class RunStore {
   public addArtifact(input: {
     readonly checksum?: string;
     readonly label: string;
+    readonly lease: FencedLease;
     readonly mediaType?: string;
     readonly runId: RunId;
     readonly sizeBytes?: number;
@@ -715,6 +721,7 @@ export class RunStore {
     }
     const now = this.timestamp();
     const id = createId("artifact", `${input.runId}:${randomUUID()}`);
+    this.assertRunLeaseInternal(input.lease, input.runId, this.timestamp());
     this.database.run(
       `INSERT INTO artifacts (id, run_id, label, uri, media_type, size_bytes, checksum, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -741,6 +748,7 @@ export class RunStore {
   }
 
   public recordGitChange(input: {
+    readonly lease: FencedLease;
     readonly repositoryUri: string;
     readonly revision: string;
     readonly runId: RunId;
@@ -749,6 +757,7 @@ export class RunStore {
   }): GitChange {
     const now = this.timestamp();
     const id = createId("git-change", `${input.runId}:${randomUUID()}`);
+    this.assertRunLeaseInternal(input.lease, input.runId, now);
     this.database.run(
       `INSERT INTO git_changes (id, run_id, repository_uri, revision, summary, task_ids_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -834,6 +843,7 @@ export class RunStore {
 
   public setRecoveryState(input: {
     readonly lastCheckpointId?: CheckpointId;
+    readonly lease: FencedLease;
     readonly reason?: string;
     readonly runId: RunId;
     readonly status: RecoveryState["status"];
@@ -841,6 +851,7 @@ export class RunStore {
   }): RecoveryState {
     const now = this.timestamp();
     const id = createId("recovery-state", input.runId);
+    this.assertRunLeaseInternal(input.lease, input.runId, now);
     this.database.run(
       `INSERT INTO recovery_states (id, run_id, status, last_checkpoint_id, unknown_tool_call_ids_json, reason, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -932,6 +943,7 @@ export class RunStore {
 
   public addMemoryEntry(input: {
     readonly agentId?: AgentId;
+    readonly lease?: FencedLease;
     readonly confidence: number;
     readonly content: string;
     readonly runId: RunId;
@@ -947,6 +959,9 @@ export class RunStore {
     }
     const now = this.timestamp();
     const id = createId("memory-entry", `${input.runId}:${randomUUID()}`);
+    if (input.lease !== undefined) {
+      this.assertRunLeaseInternal(input.lease, input.runId, this.timestamp());
+    }
     this.database.run(
       `INSERT INTO memory_entries (id, run_id, scope, content, confidence, agent_id, source_evidence_ids_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1287,6 +1302,7 @@ export class RunStore {
 
   public setGoalStatus(input: {
     readonly expectedGoalVersion: string;
+    readonly lease?: FencedLease;
     readonly goalId: GoalId;
     readonly to: GoalStatus;
   }): Goal {
@@ -2194,6 +2210,8 @@ export class RunStore {
 
   public acquireResourceLocks(input: {
     readonly executorId: string;
+    /** Required for executor-owned locks; fences them to one generation. */
+    readonly lease?: FencedLease;
     readonly runId: RunId;
     readonly scopes: readonly ResourceScope[];
     readonly taskId?: TaskId;
@@ -2202,7 +2220,24 @@ export class RunStore {
     const now = this.clock.now();
     const timestamp = now.toISOString();
     const expiresAt = new Date(now.getTime() + input.ttlMs).toISOString();
+    const generation = input.lease?.generation ?? 0;
     return this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, timestamp);
+        if (input.lease.runId !== input.runId) {
+          throw new LeaseFencedError(
+            input.runId,
+            "Resource lock lease belongs to another Run.",
+          );
+        }
+        // A generation that has taken the Run over inherits the workspace, so
+        // locks stranded by its predecessor must not block it forever.
+        this.database.run(
+          "DELETE FROM resource_locks WHERE run_id = ? AND lease_generation < ?",
+          input.runId,
+          generation,
+        );
+      }
       this.database.run(
         "DELETE FROM resource_locks WHERE expires_at <= ?",
         timestamp,
@@ -2215,7 +2250,8 @@ export class RunStore {
         for (const lock of existing) {
           if (
             asString(lock, "holder_id") === input.executorId &&
-            asString(lock, "run_id") === input.runId
+            asString(lock, "run_id") === input.runId &&
+            asNumber(lock, "lease_generation") === generation
           )
             continue;
           const lockScope: ResourceScope = {
@@ -2239,8 +2275,8 @@ export class RunStore {
       return input.scopes.map((scope, index) => {
         const id = `lock_${createId("event", `${input.runId}:${input.executorId}:${timestamp}:${index}`).split("_").at(-1) ?? index}`;
         this.database.run(
-          `INSERT INTO resource_locks (id, run_id, task_id, holder_id, kind, identifier, access_mode, expires_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO resource_locks (id, run_id, task_id, holder_id, kind, identifier, access_mode, expires_at, created_at, lease_generation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           id,
           input.runId,
           input.taskId ?? null,
@@ -2250,17 +2286,28 @@ export class RunStore {
           scope.access,
           expiresAt,
           timestamp,
+          generation,
         );
         return id;
       });
     });
   }
 
-  public releaseResourceLocks(executorId: string, runId: RunId): void {
+  /**
+   * Releases only the locks this generation took. A daemon that reuses an
+   * executor id after a restart must not be able to release the locks of the
+   * generation that replaced it.
+   */
+  public releaseResourceLocks(
+    executorId: string,
+    runId: RunId,
+    leaseGeneration = 0,
+  ): void {
     this.database.run(
-      "DELETE FROM resource_locks WHERE holder_id = ? AND run_id = ?",
+      "DELETE FROM resource_locks WHERE holder_id = ? AND run_id = ? AND lease_generation = ?",
       executorId,
       runId,
+      leaseGeneration,
     );
   }
 
@@ -2509,6 +2556,7 @@ export class RunStore {
 
   public createCheckpoint(input: {
     readonly label: string;
+    readonly lease: FencedLease;
     readonly manifest: JsonObject;
     readonly reason: string;
     readonly runId: RunId;
@@ -2516,6 +2564,7 @@ export class RunStore {
   }): { readonly id: CheckpointId; readonly sequence: number } {
     const now = this.timestamp();
     return this.database.transaction(() => {
+      this.assertRunLeaseInternal(input.lease, input.runId, now);
       const count = this.database.get(
         "SELECT COUNT(*) AS count FROM checkpoints WHERE run_id = ?",
         input.runId,
@@ -2833,6 +2882,19 @@ export class RunStore {
       this.transitionRunInternal(run.id, "budget_limited", now);
     }
     return this.mustRun(run.id);
+  }
+
+  /** Asserts a lease is current and actually belongs to the Run being written. */
+  private assertRunLeaseInternal(
+    lease: FencedLease | undefined,
+    runId: RunId,
+    now: string,
+  ): void {
+    if (lease === undefined) return;
+    if (lease.runId !== runId) {
+      throw new LeaseFencedError(runId, "Lease belongs to another Run.");
+    }
+    this.assertLeaseInternal(lease, now);
   }
 
   private assertLeaseInternal(

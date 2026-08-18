@@ -607,6 +607,7 @@ export class RunCoordinator implements RunActionExecutor {
           if (scopes.length > 0) {
             this.store.acquireResourceLocks({
               executorId: lease.executorId,
+              lease,
               runId: lease.runId,
               scopes,
               ttlMs: 15 * 60_000,
@@ -648,7 +649,11 @@ export class RunCoordinator implements RunActionExecutor {
             throw error;
           } finally {
             if (scopes.length > 0) {
-              this.store.releaseResourceLocks(lease.executorId, lease.runId);
+              this.store.releaseResourceLocks(
+                lease.executorId,
+                lease.runId,
+                lease.generation,
+              );
             }
           }
         },
