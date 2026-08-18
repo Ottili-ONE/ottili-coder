@@ -24,6 +24,7 @@ import {
   type Artifact,
   type ArtifactId,
   type BudgetDelta,
+  type BudgetUsage,
   type CheckpointId,
   type ContextSnapshot,
   type ContextSnapshotId,
@@ -792,6 +793,8 @@ export class RunStore {
     readonly lease?: Pick<RunLease, "generation" | "executorId" | "runId">;
     readonly runId: RunId;
     readonly sessionEpochId?: SessionEpoch["id"];
+    /** Deduplicates a replayed turn's cost against the same Run. */
+    readonly entryKey?: string;
   }): CostRecord {
     const numeric = [
       input.cachedTokens ?? 0,
@@ -814,9 +817,19 @@ export class RunStore {
         }
         this.assertLeaseInternal(input.lease, now);
       }
+      if (input.entryKey !== undefined) {
+        const existing = this.database.get(
+          "SELECT id FROM cost_records WHERE run_id = ? AND entry_key = ?",
+          input.runId,
+          input.entryKey,
+        );
+        if (existing !== undefined) {
+          return this.mustCostRecord(asString(existing, "id") as CostRecordId);
+        }
+      }
       this.database.run(
-        `INSERT INTO cost_records (id, run_id, agent_id, session_epoch_id, input_tokens, output_tokens, cached_tokens, cost_usd, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO cost_records (id, run_id, agent_id, session_epoch_id, input_tokens, output_tokens, cached_tokens, cost_usd, created_at, updated_at, entry_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.runId,
         input.agentId ?? null,
@@ -827,6 +840,7 @@ export class RunStore {
         input.costUsd ?? 0,
         now,
         now,
+        input.entryKey ?? null,
       );
       return this.mustCostRecord(id);
     });
@@ -2318,15 +2332,70 @@ export class RunStore {
     });
   }
 
+  /**
+   * Adds usage to the shared Run budget under a fence.
+   *
+   * `entryKey` makes the write idempotent. A turn that is replayed after a
+   * crash, a takeover, or a provider retry would otherwise charge the same
+   * tokens to the shared budget more than once, which silently starves every
+   * other agent on the Run. The session epoch is the natural key: one epoch
+   * consumes one provider turn's usage.
+   */
   public recordUsageFenced(
     lease: Pick<RunLease, "generation" | "executorId" | "runId">,
     delta: BudgetDelta,
+    entry:
+      | { readonly agentId?: AgentId; readonly key: string }
+      | undefined = undefined,
   ): Run {
     const now = this.timestamp();
     return this.database.transaction(() => {
       this.assertLeaseInternal(lease, now);
+      if (entry !== undefined) {
+        const existing = this.database.get(
+          "SELECT entry_key FROM usage_entries WHERE run_id = ? AND entry_key = ?",
+          lease.runId,
+          entry.key,
+        );
+        if (existing !== undefined) return this.mustRun(lease.runId);
+        this.database.run(
+          `INSERT INTO usage_entries (run_id, entry_key, agent_id, delta_json, lease_generation, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          lease.runId,
+          entry.key,
+          entry.agentId ?? null,
+          stringify(delta as JsonValue),
+          lease.generation,
+          now,
+        );
+      }
       return this.recordUsageInternal(lease.runId, delta, now);
     });
+  }
+
+  /** Per-agent shares of the shared Run budget, for attribution and limits. */
+  public usageByAgent(
+    runId: RunId,
+  ): readonly {
+    readonly agentId: AgentId | undefined;
+    readonly usage: BudgetUsage;
+  }[] {
+    const totals = new Map<string, BudgetUsage>();
+    for (const row of this.database.all(
+      "SELECT agent_id, delta_json FROM usage_entries WHERE run_id = ? ORDER BY created_at, rowid",
+      runId,
+    )) {
+      const agentId = optionalString(row, "agent_id") ?? "";
+      const delta = parseJson<BudgetDelta>(asString(row, "delta_json"));
+      totals.set(
+        agentId,
+        addBudgetUsage(totals.get(agentId) ?? EMPTY_BUDGET_USAGE, delta),
+      );
+    }
+    return [...totals.entries()].map(([agentId, usage]) => ({
+      agentId: agentId.length === 0 ? undefined : (agentId as AgentId),
+      usage,
+    }));
   }
 
   public recordToolIntent(input: ToolIntentInput): string {

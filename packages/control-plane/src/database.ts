@@ -3,16 +3,16 @@ import { DatabaseSync } from "node:sqlite";
 export type SqlParameter = Uint8Array | bigint | null | number | string;
 export type SqlRow = Readonly<Record<string, unknown>>;
 
-export const LATEST_SCHEMA_VERSION = 4;
+export const LATEST_SCHEMA_VERSION = 5;
 
 /** Test-only migration target makes upgrade paths directly regression-testable. */
 export interface SqliteDatabaseOptions {
-  readonly migrationTargetVersion?: 1 | 2 | 3 | 4;
+  readonly migrationTargetVersion?: 1 | 2 | 3 | 4 | 5;
 }
 
 export class SqliteDatabase {
   private readonly connection: DatabaseSync;
-  private readonly migrationTargetVersion: 1 | 2 | 3 | 4;
+  private readonly migrationTargetVersion: 1 | 2 | 3 | 4 | 5;
 
   public constructor(path: string, options: SqliteDatabaseOptions = {}) {
     this.connection = new DatabaseSync(path);
@@ -586,6 +586,36 @@ export class SqliteDatabase {
       `);
         this.run(
           "INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)",
+          new Date().toISOString(),
+        );
+      });
+
+    if (this.migrationTargetVersion === 4) return;
+
+    if (!this.hasMigration(5))
+      this.transaction(() => {
+        // Usage and cost were added unconditionally, so a turn replayed after
+        // a crash or takeover could charge a shared Run budget twice. Both are
+        // now keyed by the session epoch that produced them.
+        this.connection.exec(`
+        CREATE TABLE usage_entries (
+          run_id TEXT NOT NULL REFERENCES runs(id),
+          entry_key TEXT NOT NULL,
+          agent_id TEXT REFERENCES agents(id),
+          delta_json TEXT NOT NULL,
+          lease_generation INTEGER,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (run_id, entry_key)
+        );
+
+        ALTER TABLE cost_records ADD COLUMN entry_key TEXT;
+
+        CREATE UNIQUE INDEX idx_cost_records_entry
+          ON cost_records(run_id, entry_key)
+          WHERE entry_key IS NOT NULL;
+      `);
+        this.run(
+          "INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?)",
           new Date().toISOString(),
         );
       });

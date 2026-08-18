@@ -180,9 +180,15 @@ export class RunCoordinator implements RunActionExecutor {
         signal: input.signal,
       });
       if (input.signal.aborted) return this.handleAbort(input.lease, epoch.id);
-      this.store.recordUsageFenced(input.lease, result.usage);
+      // The session epoch keys both writes, so a replayed turn cannot charge
+      // the shared Run budget twice.
+      this.store.recordUsageFenced(input.lease, result.usage, {
+        agentId: acting.id,
+        key: epoch.id,
+      });
       this.store.recordCost({
         agentId: acting.id,
+        entryKey: epoch.id,
         lease: input.lease,
         runId: run.id,
         sessionEpochId: epoch.id,
