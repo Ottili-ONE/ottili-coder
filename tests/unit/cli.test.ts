@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { Mission, MissionId, Run, RunId } from "@ottili/protocol";
 import {
@@ -113,7 +114,12 @@ describe("thin CLI client", () => {
       url: "http://daemon.test/v1/runs",
     });
     expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
-      mission: { prompt: "Ship the client", workspaceUri: "file:///workspace" },
+      mission: {
+        prompt: "Ship the client",
+        // `/workspace` resolves against the host's current drive on Windows,
+        // so the expected URI has to be derived the same way the CLI does.
+        workspaceUri: pathToFileURL(resolve("/workspace")).href,
+      },
     });
     expect(JSON.parse(output.text())).toMatchObject({ run: { id: run.id } });
   });

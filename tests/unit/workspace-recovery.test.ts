@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import type { ToolDefinition } from "@ottili/protocol";
@@ -163,7 +163,12 @@ describe("GitService checkpoints", () => {
   // `/private/var/folders/...`. Git prints the resolved location, so comparing
   // it against `path.resolve` made a freshly created worktree look missing.
   it("manages worktrees when the workspace is reached through a symbolic link", async () => {
-    const realRoot = await mkdtemp(join(tmpdir(), "ottili-worktree-real-"));
+    // `os.tmpdir()` is not canonical on either CI platform that matters here:
+    // macOS returns `/var/folders/...` for `/private/var/folders/...`, and
+    // Windows returns the 8.3 short name `C:\Users\RUNNER~1\...`.
+    const realRoot = await canonicalizePath(
+      await mkdtemp(join(tmpdir(), "ottili-worktree-real-")),
+    );
     temporaryDirectories.push(realRoot);
     const linkRoot = join(
       tmpdir(),
@@ -207,7 +212,9 @@ describe("GitService checkpoints", () => {
   });
 
   it("canonicalizes paths that do not exist yet", async () => {
-    const realRoot = await mkdtemp(join(tmpdir(), "ottili-canonical-real-"));
+    const realRoot = await canonicalizePath(
+      await mkdtemp(join(tmpdir(), "ottili-canonical-real-")),
+    );
     temporaryDirectories.push(realRoot);
     const linkRoot = join(
       tmpdir(),
@@ -327,10 +334,12 @@ describe("sandbox inheritance", () => {
         createSandboxProfile("autonomous", "/tmp/ottili-parent"),
       ),
     ).toThrow("broaden");
+    // Sandbox roots are normalized to native absolute paths, which on Windows
+    // means a drive-qualified path rather than the POSIX spelling.
     expect(
       rebindSandboxProfile(parent, "/tmp/ottili-worktree").filesystem
         .writableRoots,
-    ).toEqual(["/tmp/ottili-worktree"]);
+    ).toEqual([resolve("/tmp/ottili-worktree")]);
 
     const capabilities = await detectSandboxCapabilities({
       architecture: "x64",
