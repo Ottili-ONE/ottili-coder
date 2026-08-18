@@ -289,7 +289,7 @@ describe("RunStore durable control plane", () => {
     expect(store.getRun(run.id)?.status).toBe("blocked");
   });
 
-  it("upgrades an existing v1 SQLite journal to the v2 durable projections", async () => {
+  it("upgrades an existing v1 SQLite journal through every later migration", async () => {
     const directory = await mkdtemp(join(tmpdir(), "ottili-v1-upgrade-"));
     const path = join(directory, "state.db");
     try {
@@ -298,7 +298,52 @@ describe("RunStore durable control plane", () => {
       const versions = upgraded.all(
         "SELECT version FROM schema_migrations ORDER BY version",
       );
-      expect(versions.map((row) => row.version)).toEqual([1, 2]);
+      expect(versions.map((row) => row.version)).toEqual([1, 2, 3]);
+      upgraded.close();
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("adds the graph execution columns to a populated v2 journal without data loss", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ottili-v2-upgrade-"));
+    const path = join(directory, "state.db");
+    try {
+      const v2Store = new RunStore(
+        new SqliteDatabase(path, { migrationTargetVersion: 2 }),
+      );
+      const created = v2Store.createRun({
+        prompt: "Survive a schema upgrade.",
+        workspaceUri: "file:///upgrade",
+      });
+      const task = v2Store.createTask({
+        description: "Written before migration 3 existed.",
+        runId: created.run.id,
+        title: "Legacy task",
+      });
+      const eventCount = v2Store.listEvents(created.run.id).length;
+      v2Store.close();
+
+      const database = new SqliteDatabase(path);
+      expect(
+        database
+          .all("SELECT version FROM schema_migrations ORDER BY version")
+          .map((row) => row.version),
+      ).toEqual([1, 2, 3]);
+      const upgraded = new RunStore(database);
+      expect(upgraded.getRun(created.run.id)).toMatchObject({
+        id: created.run.id,
+        status: "running",
+      });
+      // Pre-existing rows keep their identity and gain the new defaults.
+      expect(upgraded.getTask(task.id)).toMatchObject({
+        id: task.id,
+        status: "ready",
+        title: "Legacy task",
+      });
+      expect(upgraded.listTasks(created.run.id)).toHaveLength(1);
+      expect(upgraded.listAgentMessages(created.run.id)).toEqual([]);
+      expect(upgraded.listEvents(created.run.id).length).toBe(eventCount);
       upgraded.close();
     } finally {
       await rm(directory, { force: true, recursive: true });

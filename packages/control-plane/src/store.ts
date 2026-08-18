@@ -17,6 +17,7 @@ import {
   type Agent,
   type AgentId,
   type AgentRole,
+  type AgentMessageId,
   type AgentStatus,
   type Approval,
   type ApprovalId,
@@ -175,6 +176,7 @@ export interface ScheduledAction {
 }
 
 export interface SpawnAgentInput {
+  readonly lease?: FencedLease;
   readonly parentAgentId?: AgentId;
   readonly permissions?: PermissionPolicy;
   readonly role: AgentRole;
@@ -188,10 +190,70 @@ export interface CreateTaskInput {
   readonly dependencies?: readonly TaskId[];
   readonly description: string;
   readonly goalId?: GoalId;
+  /** Required for executor-owned writes; omitted only by control-plane tools. */
+  readonly lease?: FencedLease;
   readonly requirementIds?: readonly string[];
   readonly resourceScopes?: readonly ResourceScope[];
   readonly runId: RunId;
   readonly title: string;
+}
+
+/** The subset of a lease that fences a durable write. */
+export type FencedLease = Pick<RunLease, "generation" | "executorId" | "runId">;
+
+export interface TransitionTaskInput {
+  readonly error?: string;
+  readonly lease?: FencedLease;
+  readonly result?: JsonValue;
+  readonly taskId: TaskId;
+  readonly to: TaskStatus;
+}
+
+export interface ClaimTaskInput {
+  readonly agentId: AgentId;
+  readonly lease: FencedLease;
+  readonly taskId: TaskId;
+}
+
+export interface ListTasksOptions {
+  readonly ownerAgentId?: AgentId;
+  readonly status?: readonly TaskStatus[];
+}
+
+export type AgentMessageKind =
+  | "task_assignment"
+  | "task_result"
+  | "question"
+  | "answer"
+  | "review_request"
+  | "review_result"
+  | "status";
+
+export interface AgentMessage {
+  readonly id: AgentMessageId;
+  readonly runId: RunId;
+  readonly fromAgentId?: AgentId;
+  readonly toAgentId: AgentId;
+  readonly taskId?: TaskId;
+  readonly kind: AgentMessageKind;
+  readonly body: JsonObject;
+  readonly status: "delivered" | "pending";
+  readonly createdAt: string;
+  readonly deliveredAt?: string;
+}
+
+export interface SendAgentMessageInput {
+  readonly body: JsonObject;
+  readonly fromAgentId?: AgentId;
+  readonly kind: AgentMessageKind;
+  readonly lease: FencedLease;
+  readonly taskId?: TaskId;
+  readonly toAgentId: AgentId;
+}
+
+export interface RecoveredGraphWork {
+  readonly agentIds: readonly AgentId[];
+  readonly taskIds: readonly TaskId[];
 }
 
 export interface ToolIntentInput {
@@ -361,7 +423,10 @@ export class RunStore {
 
   public listAgents(runId: RunId): readonly Agent[] {
     return this.database
-      .all("SELECT * FROM agents WHERE run_id = ? ORDER BY created_at", runId)
+      .all(
+        "SELECT * FROM agents WHERE run_id = ? ORDER BY created_at, rowid",
+        runId,
+      )
       .map((row) => this.agentFromRow(row));
   }
 
@@ -991,9 +1056,59 @@ export class RunStore {
     });
   }
 
+  /**
+   * Adds a durable requirement after the Run has started. Requirements are the
+   * only thing the completion gate trusts, so an executor must be able to
+   * record them under its lease rather than only at Run creation.
+   */
+  public addRequirement(input: {
+    readonly id?: string;
+    readonly lease?: FencedLease;
+    readonly required?: boolean;
+    readonly runId: RunId;
+    readonly title: string;
+  }): RequirementRecord {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, now);
+        if (input.lease.runId !== input.runId) {
+          throw new Error("Requirement lease does not match its Run.");
+        }
+      }
+      const id =
+        input.id ?? createId("requirement", `${input.runId}:${randomUUID()}`);
+      const existing = this.database.get(
+        "SELECT id FROM requirements WHERE id = ? AND run_id = ?",
+        id,
+        input.runId,
+      );
+      if (existing === undefined) {
+        this.database.run(
+          `INSERT INTO requirements (id, run_id, title, required, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'unproven', ?, ?)`,
+          id,
+          input.runId,
+          input.title,
+          input.required === false ? 0 : 1,
+          now,
+          now,
+        );
+      }
+      const requirement = this.listRequirements(input.runId).find(
+        (candidate) => candidate.id === id,
+      );
+      if (requirement === undefined) {
+        throw new Error(`Requirement '${id}' could not be persisted.`);
+      }
+      return requirement;
+    });
+  }
+
   public addEvidence(input: {
     readonly artifactIds?: readonly ArtifactId[];
     readonly kind: "artifact" | "command" | "inspection" | "review" | "test";
+    readonly lease?: FencedLease;
     readonly requirementId: string;
     readonly runId: RunId;
     readonly strength: "strong" | "supporting" | "weak";
@@ -1003,6 +1118,12 @@ export class RunStore {
     const now = this.timestamp();
     const id = `evidence_${randomUUID()}`;
     this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, now);
+        if (input.lease.runId !== input.runId) {
+          throw new Error("Evidence lease does not match its Run.");
+        }
+      }
       this.database.run(
         "INSERT INTO evidence (id, run_id, requirement_id, task_id, kind, strength, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         id,
@@ -1049,8 +1170,15 @@ export class RunStore {
     runId: RunId,
     requirementId: string,
     status: RequirementRecord["status"],
+    lease?: FencedLease,
   ): void {
     this.database.transaction(() => {
+      if (lease !== undefined) {
+        this.assertLeaseInternal(lease, this.timestamp());
+        if (lease.runId !== runId) {
+          throw new Error("Requirement lease does not match its Run.");
+        }
+      }
       if (status === "proven") {
         const evidence = this.database.get(
           "SELECT id FROM evidence WHERE requirement_id = ? AND strength = 'strong' LIMIT 1",
@@ -1474,10 +1602,322 @@ export class RunStore {
     });
   }
 
+  public getTask(taskId: TaskId): Task | undefined {
+    const row = this.database.get("SELECT * FROM tasks WHERE id = ?", taskId);
+    return row === undefined ? undefined : this.taskFromRow(row);
+  }
+
+  /**
+   * Reads the durable Task Graph. Readiness is a persisted status rather than
+   * a derived value, so a replacement daemon reconstructs the graph by reading
+   * it rather than by replaying how it was built.
+   */
+  public listTasks(
+    runId: RunId,
+    options: ListTasksOptions = {},
+  ): readonly Task[] {
+    const conditions = ["run_id = ?"];
+    const parameters: (string | number)[] = [runId];
+    if (options.status !== undefined && options.status.length > 0) {
+      conditions.push(
+        `status IN (${options.status.map(() => "?").join(", ")})`,
+      );
+      parameters.push(...options.status);
+    }
+    if (options.ownerAgentId !== undefined) {
+      conditions.push("owner_agent_id = ?");
+      parameters.push(options.ownerAgentId);
+    }
+    return this.database
+      .all(
+        `SELECT * FROM tasks WHERE ${conditions.join(" AND ")} ORDER BY created_at, rowid`,
+        ...parameters,
+      )
+      .map((row) => this.taskFromRow(row));
+  }
+
+  /** The next unowned ready Task, in creation order. */
+  public nextReadyTask(runId: RunId): Task | undefined {
+    return this.listTasks(runId, { status: ["ready"] }).find(
+      (task) => task.ownerAgentId === undefined,
+    );
+  }
+
+  /**
+   * Moves a ready Task to running under one Agent and one lease generation.
+   * The conditional update is the claim: two executors racing the same Task
+   * cannot both observe a successful assignment.
+   */
+  public claimTask(input: ClaimTaskInput): Task {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const task = this.mustTask(input.taskId);
+      if (task.runId !== input.lease.runId) {
+        throw new Error("Task does not belong to the leased Run.");
+      }
+      const agent = this.mustAgent(input.agentId);
+      if (agent.runId !== task.runId) {
+        throw new Error("Task and Agent must belong to the same Run.");
+      }
+      assertTaskTransition(task.status, "running");
+      this.database.run(
+        `UPDATE tasks
+         SET status = 'running', owner_agent_id = ?, lease_generation = ?, updated_at = ?
+         WHERE id = ? AND status = 'ready' AND owner_agent_id IS NULL`,
+        input.agentId,
+        input.lease.generation,
+        now,
+        task.id,
+      );
+      const claimed = this.mustTask(task.id);
+      if (claimed.ownerAgentId !== input.agentId) {
+        throw new Error(
+          `Task '${task.id}' was claimed by another Agent before this executor could take it.`,
+        );
+      }
+      this.appendEventInternal(
+        task.runId,
+        "task.assigned",
+        { agentId: input.agentId, taskId: task.id },
+        now,
+        input.lease.generation,
+      );
+      this.appendEventInternal(
+        task.runId,
+        "task.status_changed",
+        { taskId: task.id, to: "running" },
+        now,
+        input.lease.generation,
+      );
+      return claimed;
+    });
+  }
+
+  public addTaskEvidence(input: {
+    readonly evidenceId: string;
+    readonly lease: FencedLease;
+    readonly taskId: TaskId;
+  }): void {
+    const now = this.timestamp();
+    this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const task = this.mustTask(input.taskId);
+      if (task.runId !== input.lease.runId) {
+        throw new Error("Task does not belong to the leased Run.");
+      }
+      this.database.run(
+        "INSERT OR IGNORE INTO task_evidence (task_id, evidence_id) VALUES (?, ?)",
+        input.taskId,
+        input.evidenceId,
+      );
+    });
+  }
+
+  /**
+   * Returns Task and Agent work stranded by an older lease generation and
+   * makes it claimable again. A stranded Task first passes through `failed`
+   * so the abandonment stays visible in the durable history instead of being
+   * silently rewound.
+   */
+  public recoverGraphWork(lease: FencedLease): RecoveredGraphWork {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      this.assertLeaseInternal(lease, now);
+      // A NULL generation means no executor ever claimed the row, so it is
+      // not stranded work. Only a strictly older generation is.
+      const strandedTasks = this.database
+        .all(
+          `SELECT * FROM tasks
+           WHERE run_id = ? AND status = 'running' AND lease_generation < ?`,
+          lease.runId,
+          lease.generation,
+        )
+        .map((row) => asString(row, "id") as TaskId);
+      for (const taskId of strandedTasks) {
+        this.database.run(
+          `UPDATE tasks
+           SET status = 'failed', owner_agent_id = NULL, lease_generation = ?,
+               attempt = attempt + 1,
+               last_error = 'Executor was replaced before the task finished.',
+               updated_at = ?
+           WHERE id = ?`,
+          lease.generation,
+          now,
+          taskId,
+        );
+        this.database.run(
+          "UPDATE tasks SET status = 'ready', updated_at = ? WHERE id = ?",
+          now,
+          taskId,
+        );
+        this.appendEventInternal(
+          lease.runId,
+          "task.recovered",
+          { taskId, to: "ready" },
+          now,
+          lease.generation,
+        );
+      }
+
+      const strandedAgents = this.database
+        .all(
+          `SELECT * FROM agents
+           WHERE run_id = ? AND status IN ('running', 'recovering')
+             AND lease_generation < ?`,
+          lease.runId,
+          lease.generation,
+        )
+        .map((row) => asString(row, "id") as AgentId);
+      for (const agentId of strandedAgents) {
+        this.transitionAgentInternal(agentId, "recovering", now);
+        this.transitionAgentInternal(agentId, "queued", now);
+        this.database.run(
+          "UPDATE agents SET lease_generation = ? WHERE id = ?",
+          lease.generation,
+          agentId,
+        );
+      }
+      return { agentIds: strandedAgents, taskIds: strandedTasks };
+    });
+  }
+
+  /**
+   * Stamps the Agent that is executing under this lease. Without it a
+   * long-lived Agent keeps whichever generation last transitioned it, and
+   * takeover recovery cannot tell live work from abandoned work.
+   */
+  public markAgentActive(input: {
+    readonly agentId: AgentId;
+    readonly lease: FencedLease;
+  }): void {
+    const now = this.timestamp();
+    this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const agent = this.mustAgent(input.agentId);
+      if (agent.runId !== input.lease.runId) {
+        throw new Error("Agent does not belong to the leased Run.");
+      }
+      this.database.run(
+        "UPDATE agents SET lease_generation = ?, updated_at = ? WHERE id = ?",
+        input.lease.generation,
+        now,
+        input.agentId,
+      );
+    });
+  }
+
+  /** Durable, lease-fenced Agent mailbox. Messages survive a daemon restart. */
+  public sendAgentMessage(input: SendAgentMessageInput): AgentMessage {
+    const now = this.timestamp();
+    const id = createId(
+      "agent-message",
+      `${input.lease.runId}:${randomUUID()}`,
+    );
+    return this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const recipient = this.mustAgent(input.toAgentId);
+      if (recipient.runId !== input.lease.runId) {
+        throw new Error("Agent message recipient belongs to another Run.");
+      }
+      if (input.fromAgentId !== undefined) {
+        const sender = this.mustAgent(input.fromAgentId);
+        if (sender.runId !== input.lease.runId) {
+          throw new Error("Agent message sender belongs to another Run.");
+        }
+      }
+      this.database.run(
+        `INSERT INTO agent_messages
+           (id, run_id, from_agent_id, to_agent_id, task_id, kind, body_json, status, lease_generation, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        id,
+        input.lease.runId,
+        input.fromAgentId ?? null,
+        input.toAgentId,
+        input.taskId ?? null,
+        input.kind,
+        stringify(input.body),
+        input.lease.generation,
+        now,
+      );
+      this.appendEventInternal(
+        input.lease.runId,
+        "agent.message_sent",
+        {
+          kind: input.kind,
+          messageId: id,
+          toAgentId: input.toAgentId,
+          ...(input.fromAgentId === undefined
+            ? {}
+            : { fromAgentId: input.fromAgentId }),
+        },
+        now,
+        input.lease.generation,
+      );
+      return this.mustAgentMessage(id);
+    });
+  }
+
+  /** Atomically drains an inbox. Delivery is recorded before the caller acts. */
+  public receiveAgentMessages(input: {
+    readonly agentId: AgentId;
+    readonly lease: FencedLease;
+    readonly limit?: number;
+  }): readonly AgentMessage[] {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const rows = this.database.all(
+        `SELECT * FROM agent_messages
+         WHERE to_agent_id = ? AND run_id = ? AND status = 'pending'
+         ORDER BY created_at, rowid
+         LIMIT ?`,
+        input.agentId,
+        input.lease.runId,
+        input.limit ?? 32,
+      );
+      const messages = rows.map((row) => this.agentMessageFromRow(row));
+      for (const message of messages) {
+        this.database.run(
+          "UPDATE agent_messages SET status = 'delivered', delivered_at = ? WHERE id = ?",
+          now,
+          message.id,
+        );
+        this.appendEventInternal(
+          input.lease.runId,
+          "agent.message_delivered",
+          { messageId: message.id, toAgentId: input.agentId },
+          now,
+          input.lease.generation,
+        );
+      }
+      return messages.map((message) => ({
+        ...message,
+        deliveredAt: now,
+        status: "delivered" as const,
+      }));
+    });
+  }
+
+  public listAgentMessages(runId: RunId): readonly AgentMessage[] {
+    return this.database
+      .all(
+        "SELECT * FROM agent_messages WHERE run_id = ? ORDER BY created_at, rowid",
+        runId,
+      )
+      .map((row) => this.agentMessageFromRow(row));
+  }
+
   public createTask(input: CreateTaskInput): Task {
     const now = this.timestamp();
     const id = createId("task", `${input.runId}:${randomUUID()}`);
     return this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, now);
+        if (input.lease.runId !== input.runId) {
+          throw new Error("Task lease does not match the Task's Run.");
+        }
+      }
       this.database.run(
         `INSERT INTO tasks (id, run_id, goal_id, title, description, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
@@ -1525,23 +1965,48 @@ export class RunStore {
     });
   }
 
-  public transitionTask(taskId: TaskId, to: TaskStatus): Task {
+  public transitionTask(input: TransitionTaskInput): Task {
     const now = this.timestamp();
     return this.database.transaction(() => {
-      const task = this.mustTask(taskId);
-      assertTaskTransition(task.status, to);
+      if (input.lease !== undefined) this.assertLeaseInternal(input.lease, now);
+      const task = this.mustTask(input.taskId);
+      if (input.lease !== undefined && task.runId !== input.lease.runId) {
+        throw new Error("Task does not belong to the leased Run.");
+      }
+      assertTaskTransition(task.status, input.to);
+      const releasesOwner =
+        input.to === "completed" ||
+        input.to === "failed" ||
+        input.to === "cancelled";
       this.database.run(
-        "UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?",
-        to,
-        to === "completed" ? now : null,
+        `UPDATE tasks
+         SET status = ?, completed_at = ?, updated_at = ?,
+             owner_agent_id = CASE WHEN ? THEN NULL ELSE owner_agent_id END,
+             attempt = attempt + CASE WHEN ? THEN 1 ELSE 0 END,
+             last_error = ?,
+             result_json = COALESCE(?, result_json),
+             lease_generation = COALESCE(?, lease_generation)
+         WHERE id = ?`,
+        input.to,
+        input.to === "completed" ? now : null,
         now,
+        releasesOwner ? 1 : 0,
+        input.to === "failed" ? 1 : 0,
+        input.error ?? null,
+        input.result === undefined ? null : stringify(input.result),
+        input.lease?.generation ?? null,
         task.id,
       );
       this.appendEventInternal(
         task.runId,
         "task.status_changed",
-        { taskId: task.id, to },
+        {
+          taskId: task.id,
+          to: input.to,
+          ...(input.error === undefined ? {} : { error: input.error }),
+        },
         now,
+        input.lease?.generation,
       );
       this.refreshTaskReadinessInternal(task.runId, now);
       return this.mustTask(task.id);
@@ -1552,6 +2017,12 @@ export class RunStore {
     const now = this.timestamp();
     const id = createId("agent", `${input.runId}:${randomUUID()}`);
     return this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, now);
+        if (input.lease.runId !== input.runId) {
+          throw new Error("Agent lease does not match the Agent's Run.");
+        }
+      }
       if (input.parentAgentId !== undefined) {
         const parent = this.mustAgent(input.parentAgentId);
         if (parent.runId !== input.runId)
@@ -1581,21 +2052,53 @@ export class RunStore {
           now,
         );
       }
+      if (input.lease !== undefined) {
+        this.database.run(
+          "UPDATE agents SET lease_generation = ? WHERE id = ?",
+          input.lease.generation,
+          id,
+        );
+      }
       this.appendEventInternal(
         input.runId,
         "agent.status_changed",
         { agentId: id, to: "created" },
         now,
+        input.lease?.generation,
       );
       return this.mustAgent(id);
     });
   }
 
-  public transitionAgent(agentId: AgentId, to: AgentStatus): Agent {
+  public transitionAgent(input: {
+    readonly agentId: AgentId;
+    readonly lease?: FencedLease;
+    readonly to: AgentStatus;
+  }): Agent {
     const now = this.timestamp();
-    return this.database.transaction(() =>
-      this.transitionAgentInternal(agentId, to, now),
-    );
+    return this.database.transaction(() => {
+      if (input.lease !== undefined) {
+        this.assertLeaseInternal(input.lease, now);
+        const agent = this.mustAgent(input.agentId);
+        if (agent.runId !== input.lease.runId) {
+          throw new Error("Agent does not belong to the leased Run.");
+        }
+      }
+      const transitioned = this.transitionAgentInternal(
+        input.agentId,
+        input.to,
+        now,
+        input.lease?.generation,
+      );
+      if (input.lease !== undefined) {
+        this.database.run(
+          "UPDATE agents SET lease_generation = ? WHERE id = ?",
+          input.lease.generation,
+          input.agentId,
+        );
+      }
+      return transitioned;
+    });
   }
 
   public startSessionEpoch(input: {
@@ -2191,6 +2694,7 @@ export class RunStore {
     agentId: AgentId,
     to: AgentStatus,
     now: string,
+    leaseGeneration?: number,
   ): Agent {
     const agent = this.mustAgent(agentId);
     assertAgentTransition(agent.status, to);
@@ -2206,6 +2710,7 @@ export class RunStore {
       "agent.status_changed",
       { agentId: agent.id, to },
       now,
+      leaseGeneration,
     );
     return this.mustAgent(agent.id);
   }
@@ -2447,6 +2952,44 @@ export class RunStore {
     if (row === undefined)
       throw new Error(`MemoryEntry '${id}' was not found.`);
     return this.memoryEntryFromRow(row);
+  }
+
+  private mustAgentMessage(id: AgentMessageId): AgentMessage {
+    const row = this.database.get(
+      "SELECT * FROM agent_messages WHERE id = ?",
+      id,
+    );
+    if (row === undefined)
+      throw new Error(`Agent message '${id}' was not found.`);
+    return this.agentMessageFromRow(row);
+  }
+
+  private agentMessageFromRow(row: SqlRow): AgentMessage {
+    const fromAgentId = optionalString(row, "from_agent_id");
+    const taskId = optionalString(row, "task_id");
+    const deliveredAt = optionalString(row, "delivered_at");
+    return {
+      body: parseJson<JsonObject>(asString(row, "body_json")),
+      createdAt: asString(row, "created_at"),
+      id: asString(row, "id") as AgentMessageId,
+      kind: asOneOf(row, "kind", [
+        "answer",
+        "question",
+        "review_request",
+        "review_result",
+        "status",
+        "task_assignment",
+        "task_result",
+      ] as const),
+      runId: asString(row, "run_id") as RunId,
+      status: asOneOf(row, "status", ["delivered", "pending"] as const),
+      toAgentId: asString(row, "to_agent_id") as AgentId,
+      ...(fromAgentId === undefined
+        ? {}
+        : { fromAgentId: fromAgentId as AgentId }),
+      ...(taskId === undefined ? {} : { taskId: taskId as TaskId }),
+      ...(deliveredAt === undefined ? {} : { deliveredAt }),
+    };
   }
 
   private mustApproval(id: ApprovalId): Approval {
@@ -2773,7 +3316,9 @@ export class RunStore {
     const ownerAgentId = optionalString(row, "owner_agent_id");
     const resultJson = optionalString(row, "result_json");
     const completedAt = optionalString(row, "completed_at");
+    const lastError = optionalString(row, "last_error");
     return {
+      attempt: Number(row["attempt"] ?? 0),
       blockerIds: this.database
         .all(
           "SELECT problem_id FROM task_problems WHERE task_id = ? ORDER BY problem_id",
@@ -2838,6 +3383,7 @@ export class RunStore {
         ? {}
         : { result: parseJson<JsonValue>(resultJson) }),
       ...(completedAt === undefined ? {} : { completedAt }),
+      ...(lastError === undefined ? {} : { lastError }),
     };
   }
 

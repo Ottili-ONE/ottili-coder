@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type { RunActionExecutor, ScheduledAction } from "@ottili/control-plane";
+import type {
+  AgentMessage,
+  RunActionExecutor,
+  ScheduledAction,
+} from "@ottili/control-plane";
 import type { RunStore } from "@ottili/control-plane";
 import {
   PermissionDeniedError,
@@ -14,8 +18,10 @@ import type {
   JsonObject,
   JsonValue,
   ResourceScope,
+  Run,
   RunId,
   RunLease,
+  Task,
 } from "@ottili/protocol";
 import {
   CompletionGate,
@@ -24,6 +30,7 @@ import {
 } from "@ottili/validation";
 
 import { AgentTurnEngine } from "./engine.js";
+import { createMissionTools } from "./mission-tools.js";
 import {
   classifyProviderFailure,
   retryDelayMs,
@@ -89,23 +96,41 @@ export class RunCoordinator implements RunActionExecutor {
     if (mission === undefined)
       throw new Error(`Run '${run.id}' has no Mission.`);
 
+    // Reclaim Task and Agent work stranded by an executor this lease replaced
+    // before scheduling anything new against the same graph.
+    this.store.recoverGraphWork(input.lease);
+    const acting = this.selectActingAgent(run, coordinator, input.lease);
+    const inbox = this.store.receiveAgentMessages({
+      agentId: acting.id,
+      lease: input.lease,
+    });
+    const activeTask = this.claimTaskFor(acting, input.lease);
+
     const epoch = this.store.startSessionEpoch({
-      agentId: coordinator.id,
+      agentId: acting.id,
       lease: input.lease,
       model: this.options.model,
       provider: this.options.provider.id,
     });
     this.store.appendFencedEvent({
       lease: input.lease,
-      payload: { agentId: coordinator.id, sessionEpochId: epoch.id },
+      payload: { agentId: acting.id, sessionEpochId: epoch.id },
       type: "agent.turn_started",
     });
 
     const sourceTools = this.resolveTools(mission.workspaceUri, run.id);
     const durableTools = this.createDurableTools(
       input.lease,
-      coordinator,
-      sourceTools,
+      acting,
+      mergeRegistries([
+        sourceTools,
+        createMissionTools({
+          agent: acting,
+          lease: input.lease,
+          runId: run.id,
+          store: this.store,
+        }),
+      ]),
       mission.workspaceUri,
     );
     const engine = new AgentTurnEngine(this.options.provider, durableTools);
@@ -114,14 +139,20 @@ export class RunCoordinator implements RunActionExecutor {
         ...(this.options.maxToolCalls === undefined
           ? {}
           : { maxToolCalls: this.options.maxToolCalls }),
-        messages: this.messagesForRun(run.id, mission.prompt),
+        messages: this.messagesForRun({
+          activeTask,
+          agent: acting,
+          inbox,
+          missionPrompt: mission.prompt,
+          runId: run.id,
+        }),
         model: this.options.model,
         signal: input.signal,
       });
       if (input.signal.aborted) return this.handleAbort(input.lease, epoch.id);
       this.store.recordUsageFenced(input.lease, result.usage);
       this.store.recordCost({
-        agentId: coordinator.id,
+        agentId: acting.id,
         lease: input.lease,
         runId: run.id,
         sessionEpochId: epoch.id,
@@ -143,7 +174,7 @@ export class RunCoordinator implements RunActionExecutor {
           this.store.appendFencedEvent({
             lease: input.lease,
             payload: {
-              agentId: coordinator.id,
+              agentId: acting.id,
               sessionEpochId: epoch.id,
               text: event.text,
             },
@@ -156,6 +187,7 @@ export class RunCoordinator implements RunActionExecutor {
         lease: input.lease,
         reason: "completed",
       });
+      this.settleActingAgent(acting, input.lease);
 
       const requestedCompletion = result.toolExecutions.some(
         (execution) =>
@@ -203,6 +235,130 @@ export class RunCoordinator implements RunActionExecutor {
       const failure = classifyProviderFailure(error);
       return this.handleFailure(input.action, input.lease, epoch.id, failure);
     }
+  }
+
+  /**
+   * Picks which durable Agent acts this turn.
+   *
+   * Delegation has to be durable to be real: the choice is derived entirely
+   * from persisted Agent, Task, and mailbox state, so a replacement daemon
+   * resumes the same delegate rather than restarting as the coordinator. A
+   * delegate with pending work is always preferred, which is what stops the
+   * coordinator from silently doing every task itself.
+   */
+  private selectActingAgent(
+    run: Run,
+    coordinator: Agent,
+    lease: RunLease,
+  ): Agent {
+    const agents = this.store.listAgents(run.id);
+    const tasks = this.store.listTasks(run.id);
+    const pendingRecipients = new Set(
+      this.store
+        .listAgentMessages(run.id)
+        .filter((message) => message.status === "pending")
+        .map((message) => message.toAgentId),
+    );
+    const delegate = agents
+      .filter(
+        (agent) =>
+          agent.id !== coordinator.id &&
+          (agent.status === "queued" ||
+            agent.status === "running" ||
+            agent.status === "waiting"),
+      )
+      .find((agent) => {
+        if (pendingRecipients.has(agent.id)) return true;
+        return tasks.some(
+          (task) =>
+            task.ownerAgentId === agent.id &&
+            task.status !== "completed" &&
+            task.status !== "cancelled",
+        );
+      });
+    const selected = delegate ?? coordinator;
+    const active =
+      selected.status === "running"
+        ? selected
+        : this.store.transitionAgent({
+            agentId: selected.id,
+            lease,
+            to: "running",
+          });
+    // Claim the Agent for this generation so a later takeover can distinguish
+    // this live turn from work its predecessor abandoned.
+    this.store.markAgentActive({ agentId: active.id, lease });
+    return active;
+  }
+
+  /**
+   * Binds the acting Agent to exactly one durable Task for the turn. An Agent
+   * spawned for a specific task takes that task; the coordinator picks up
+   * ready work only when no delegate owns it, so a single-agent Run still
+   * advances the Task Graph rather than ignoring it.
+   */
+  private claimTaskFor(agent: Agent, lease: RunLease): Task | undefined {
+    const owned = this.store
+      .listTasks(lease.runId, { ownerAgentId: agent.id })
+      .find((task) => task.status === "running");
+    if (owned !== undefined) return owned;
+
+    const assigned =
+      agent.taskId === undefined ? undefined : this.store.getTask(agent.taskId);
+    const candidate =
+      assigned !== undefined && assigned.status === "ready"
+        ? assigned
+        : agent.role === "coordinator"
+          ? this.store.nextReadyTask(lease.runId)
+          : undefined;
+    if (candidate === undefined) return undefined;
+    try {
+      return this.store.claimTask({
+        agentId: agent.id,
+        lease,
+        taskId: candidate.id,
+      });
+    } catch {
+      // Another agent won the claim between the read and the update. The turn
+      // still runs; the next turn re-reads the graph.
+      return undefined;
+    }
+  }
+
+  /**
+   * Parks a finished delegate and reports upward. A delegate that has no
+   * remaining task stops consuming turns, but stays durable and inspectable
+   * rather than being deleted.
+   */
+  private settleActingAgent(agent: Agent, lease: RunLease): void {
+    if (agent.role === "coordinator") return;
+    const remaining = this.store
+      .listTasks(lease.runId, { ownerAgentId: agent.id })
+      .filter(
+        (task) => task.status !== "completed" && task.status !== "cancelled",
+      );
+    if (remaining.length > 0) {
+      this.store.transitionAgent({ agentId: agent.id, lease, to: "waiting" });
+      return;
+    }
+    const parent = agent.parentAgentId;
+    const finished = this.store
+      .listTasks(lease.runId, { ownerAgentId: agent.id })
+      .filter((task) => task.status === "completed");
+    if (parent !== undefined) {
+      this.store.sendAgentMessage({
+        body: {
+          completedTaskIds: finished.map((task) => task.id),
+          role: agent.role,
+        },
+        fromAgentId: agent.id,
+        kind: "task_result",
+        lease,
+        toAgentId: parent,
+        ...(agent.taskId === undefined ? {} : { taskId: agent.taskId }),
+      });
+    }
+    this.store.transitionAgent({ agentId: agent.id, lease, to: "completed" });
   }
 
   /** A pause/cancel is not a provider outage and must never schedule a retry. */
@@ -423,10 +579,14 @@ export class RunCoordinator implements RunActionExecutor {
    * memory. No live chat connection is consulted, so a replacement daemon can
    * continue a goal without requiring a new user prompt.
    */
-  private messagesForRun(
-    runId: RunId,
-    missionPrompt: string,
-  ): readonly RuntimeMessage[] {
+  private messagesForRun(input: {
+    readonly activeTask: Task | undefined;
+    readonly agent: Agent;
+    readonly inbox: readonly AgentMessage[];
+    readonly missionPrompt: string;
+    readonly runId: RunId;
+  }): readonly RuntimeMessage[] {
+    const { agent, missionPrompt, runId } = input;
     const history: RuntimeMessage[] = [];
     for (const event of this.store.listEvents(runId)) {
       const payload = event.payload;
@@ -468,11 +628,7 @@ export class RunCoordinator implements RunActionExecutor {
       .slice(-4);
     const retained = trimMessages(history, 48, 48_000);
     return [
-      {
-        content:
-          "You are the Ottili mission coordinator. Continue toward durable, independently verifiable completion. A normal response never finishes the Run.",
-        role: "system",
-      },
+      { content: roleBriefing(agent), role: "system" },
       { content: missionPrompt, role: "user" },
       ...(latestSnapshot === undefined
         ? []
@@ -486,8 +642,61 @@ export class RunCoordinator implements RunActionExecutor {
         content: `Durable memory: ${entry.content}`,
         role: "system" as const,
       })),
+      {
+        content: this.taskBriefing(runId, input.activeTask),
+        role: "system",
+      },
+      ...(input.inbox.length === 0
+        ? []
+        : [
+            {
+              content: `Messages addressed to you:\n${input.inbox
+                .map(
+                  (message) =>
+                    `- ${message.kind} from ${message.fromAgentId ?? "the run"}: ${JSON.stringify(message.body)}`,
+                )
+                .join("\n")}`,
+              role: "system" as const,
+            },
+          ]),
       ...retained,
     ];
+  }
+
+  /** The durable graph is stated explicitly; it is not inferred from chat. */
+  private taskBriefing(runId: RunId, activeTask: Task | undefined): string {
+    const tasks = this.store.listTasks(runId);
+    const requirements = this.store.listRequirements(runId);
+    const lines = [
+      activeTask === undefined
+        ? "You own no task right now. Use plan_tasks to break the mission down, or take the next ready task."
+        : `Your current task is '${activeTask.title}' (${activeTask.id}): ${activeTask.description}`,
+    ];
+    if (tasks.length > 0) {
+      lines.push(
+        `Task graph:\n${tasks
+          .map(
+            (task) =>
+              `- ${task.id} [${task.status}] ${task.title}${
+                task.dependencyIds.length === 0
+                  ? ""
+                  : ` (after ${task.dependencyIds.join(", ")})`
+              }`,
+          )
+          .join("\n")}`,
+      );
+    }
+    if (requirements.length > 0) {
+      lines.push(
+        `Requirements the completion gate will re-audit:\n${requirements
+          .map(
+            (requirement) =>
+              `- ${requirement.id} [${requirement.status}${requirement.required ? ", required" : ", optional"}] ${requirement.title}`,
+          )
+          .join("\n")}`,
+      );
+    }
+    return lines.join("\n\n");
   }
 
   private handleFailure(
@@ -548,6 +757,40 @@ export class RunCoordinator implements RunActionExecutor {
       to: "waiting_external",
     });
     return { requeue: false };
+  }
+}
+
+/** Later registries never silently replace an earlier tool of the same name. */
+function mergeRegistries(registries: readonly ToolRegistry[]): ToolRegistry {
+  const merged = new ToolRegistry();
+  for (const registry of registries) {
+    for (const definition of registry.list()) {
+      if (merged.get(definition.name) === undefined) {
+        merged.register(definition);
+      }
+    }
+  }
+  return merged;
+}
+
+function roleBriefing(agent: Agent): string {
+  const shared =
+    "Record durable evidence with record_evidence/record_validation; the completion gate re-audits the ledger and ignores any claim of being finished. A normal response never finishes the Run.";
+  switch (agent.role) {
+    case "coordinator":
+      return `You are the Ottili mission coordinator. Break the mission into durable tasks, delegate specialised work with delegate_task, and drive toward independently verifiable completion. ${shared}`;
+    case "researcher":
+      return `You are an Ottili research agent. Investigate the workspace and report findings to the coordinator. Do not change code. ${shared}`;
+    case "implementer":
+      return `You are an Ottili implementation agent. Make the smallest correct change that satisfies your task. ${shared}`;
+    case "debugger":
+      return `You are an Ottili debugging agent. Reproduce the failure first, then explain and fix its cause. ${shared}`;
+    case "reviewer":
+      return `You are an Ottili review agent. Review the change critically and independently; do not accept it because it was requested. ${shared}`;
+    case "verifier":
+      return `You are an Ottili verification agent. Re-derive whether the requirements are actually proven by the recorded evidence. ${shared}`;
+    default:
+      return `You are an Ottili specialist agent working one task of a larger mission. ${shared}`;
   }
 }
 

@@ -3,18 +3,21 @@ import { DatabaseSync } from "node:sqlite";
 export type SqlParameter = Uint8Array | bigint | null | number | string;
 export type SqlRow = Readonly<Record<string, unknown>>;
 
+export const LATEST_SCHEMA_VERSION = 3;
+
 /** Test-only migration target makes upgrade paths directly regression-testable. */
 export interface SqliteDatabaseOptions {
-  readonly migrationTargetVersion?: 1 | 2;
+  readonly migrationTargetVersion?: 1 | 2 | 3;
 }
 
 export class SqliteDatabase {
   private readonly connection: DatabaseSync;
-  private readonly migrationTargetVersion: 1 | 2;
+  private readonly migrationTargetVersion: 1 | 2 | 3;
 
   public constructor(path: string, options: SqliteDatabaseOptions = {}) {
     this.connection = new DatabaseSync(path);
-    this.migrationTargetVersion = options.migrationTargetVersion ?? 2;
+    this.migrationTargetVersion =
+      options.migrationTargetVersion ?? LATEST_SCHEMA_VERSION;
     this.connection.exec("PRAGMA journal_mode = WAL");
     this.connection.exec("PRAGMA foreign_keys = ON");
     this.connection.exec("PRAGMA busy_timeout = 5000");
@@ -67,10 +70,10 @@ export class SqliteDatabase {
         applied_at TEXT NOT NULL
       );
     `);
-    const applied = this.get(
-      "SELECT version FROM schema_migrations WHERE version = 1",
-    );
-    if (applied === undefined)
+    // Each migration is guarded independently. An early return here would
+    // strand a database that already carries an intermediate version, which
+    // is exactly how an existing v2 journal missed migration 3.
+    if (!this.hasMigration(1))
       this.transaction(() => {
         this.connection.exec(`
         CREATE TABLE missions (
@@ -331,17 +334,13 @@ export class SqliteDatabase {
 
     if (this.migrationTargetVersion === 1) return;
 
-    const secondMigration = this.get(
-      "SELECT version FROM schema_migrations WHERE version = 2",
-    );
-    if (secondMigration !== undefined) return;
-
-    this.transaction(() => {
-      // These projections deliberately stay normalized rather than being
-      // folded into a generic JSON table. They make every public durable
-      // protocol entity independently inspectable and portable to a future
-      // Postgres adapter.
-      this.connection.exec(`
+    if (!this.hasMigration(2))
+      this.transaction(() => {
+        // These projections deliberately stay normalized rather than being
+        // folded into a generic JSON table. They make every public durable
+        // protocol entity independently inspectable and portable to a future
+        // Postgres adapter.
+        this.connection.exec(`
         CREATE TABLE milestones (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL REFERENCES runs(id),
@@ -525,10 +524,59 @@ export class SqliteDatabase {
         CREATE INDEX idx_memory_entries_run ON memory_entries(run_id, scope, created_at);
         CREATE INDEX idx_approvals_run_status ON approvals(run_id, status);
       `);
-      this.run(
-        "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)",
-        new Date().toISOString(),
-      );
-    });
+        this.run(
+          "INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)",
+          new Date().toISOString(),
+        );
+      });
+
+    if (this.migrationTargetVersion === 2) return;
+
+    if (!this.hasMigration(3))
+      this.transaction(() => {
+        // Task and Agent execution state becomes lease-fenced here. Without a
+        // recorded generation, a daemon that takes a Run over cannot tell an
+        // in-flight task from one abandoned by the executor it replaced.
+        this.connection.exec(`
+        ALTER TABLE tasks ADD COLUMN lease_generation INTEGER;
+        ALTER TABLE tasks ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE tasks ADD COLUMN last_error TEXT;
+        ALTER TABLE agents ADD COLUMN lease_generation INTEGER;
+
+        CREATE TABLE agent_messages (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(id),
+          from_agent_id TEXT REFERENCES agents(id),
+          to_agent_id TEXT NOT NULL REFERENCES agents(id),
+          task_id TEXT REFERENCES tasks(id),
+          kind TEXT NOT NULL,
+          body_json TEXT NOT NULL,
+          status TEXT NOT NULL,
+          lease_generation INTEGER,
+          created_at TEXT NOT NULL,
+          delivered_at TEXT
+        );
+
+        CREATE INDEX idx_agent_messages_inbox
+          ON agent_messages(to_agent_id, status, created_at);
+        CREATE INDEX idx_agent_messages_run
+          ON agent_messages(run_id, created_at);
+        CREATE INDEX idx_tasks_owner ON tasks(owner_agent_id, status);
+        CREATE INDEX idx_agents_run_status ON agents(run_id, status);
+      `);
+        this.run(
+          "INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)",
+          new Date().toISOString(),
+        );
+      });
+  }
+
+  private hasMigration(version: number): boolean {
+    return (
+      this.get(
+        "SELECT version FROM schema_migrations WHERE version = ?",
+        version,
+      ) !== undefined
+    );
   }
 }

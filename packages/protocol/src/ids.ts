@@ -32,6 +32,7 @@ export const ENTITY_KINDS = [
   "context-snapshot",
   "memory-entry",
   "approval",
+  "agent-message",
 ] as const;
 
 export type EntityKind = (typeof ENTITY_KINDS)[number];
@@ -58,6 +59,7 @@ export type ToolCallId = EntityId<"tool-call">;
 export type GitChangeId = EntityId<"git-change">;
 export type CostRecordId = EntityId<"cost-record">;
 export type RecoveryStateId = EntityId<"recovery-state">;
+export type AgentMessageId = EntityId<"agent-message">;
 export type RunLeaseId = EntityId<"lease">;
 export type RunEventId = EntityId<"event">;
 export type ContextSnapshotId = EntityId<"context-snapshot">;

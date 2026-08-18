@@ -164,6 +164,9 @@ export interface Task extends Timestamps {
   readonly resourceScopes: readonly ResourceScope[];
   readonly result?: JsonValue;
   readonly evidenceIds: readonly EvidenceId[];
+  /** Increments whenever the task fails or is reclaimed after a takeover. */
+  readonly attempt: number;
+  readonly lastError?: string;
   readonly completedAt?: IsoTimestamp;
 }
 
@@ -345,6 +348,10 @@ export type RunEventType =
   | "agent.progress"
   | "agent.failed"
   | "agent.completed"
+  | "agent.message_sent"
+  | "agent.message_delivered"
+  | "task.assigned"
+  | "task.recovered"
   | "provider.failed"
   | "context.compacted"
   | "run.retry_scheduled"
