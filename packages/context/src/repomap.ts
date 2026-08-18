@@ -552,6 +552,29 @@ async function collectDirectoryFiles(
   }
 }
 
+/**
+ * Reads source files deterministically while excluding generated/vendor trees
+ * by default. Exposed separately so a caller that also needs file contents —
+ * the semantic index, for instance — does not have to walk the tree twice.
+ */
+export async function readRepositoryFiles(
+  rootDirectory: string,
+  options: Pick<
+    RepoMapDirectoryOptions,
+    "ignoredDirectories" | "maxFiles"
+  > = {},
+): Promise<readonly RepoMapFile[]> {
+  const root = resolve(rootDirectory);
+  const maxFiles = validateBudget(options.maxFiles, 10_000);
+  const ignored = new Set([
+    ...ignoredDirectories,
+    ...(options.ignoredDirectories ?? []),
+  ]);
+  const files: RepoMapFile[] = [];
+  await collectDirectoryFiles(root, root, ignored, maxFiles, files);
+  return files;
+}
+
 export class RepoMap {
   build(
     files: readonly RepoMapFile[],
@@ -560,19 +583,13 @@ export class RepoMap {
     return buildRepoMap(files, options);
   }
 
-  /** Reads source files deterministically while excluding generated/vendor trees by default. */
   async buildFromDirectory(
     rootDirectory: string,
     options: RepoMapDirectoryOptions = {},
   ): Promise<RepoMapResult> {
-    const root = resolve(rootDirectory);
-    const maxFiles = validateBudget(options.maxFiles, 10_000);
-    const ignored = new Set([
-      ...ignoredDirectories,
-      ...(options.ignoredDirectories ?? []),
-    ]);
-    const files: RepoMapFile[] = [];
-    await collectDirectoryFiles(root, root, ignored, maxFiles, files);
-    return buildRepoMap(files, options);
+    return buildRepoMap(
+      await readRepositoryFiles(rootDirectory, options),
+      options,
+    );
   }
 }

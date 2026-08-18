@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type {
-  AgentMessage,
-  RunActionExecutor,
-  ScheduledAction,
-} from "@ottili/control-plane";
+import type { RunActionExecutor, ScheduledAction } from "@ottili/control-plane";
 import type { RunStore } from "@ottili/control-plane";
 import {
   PermissionDeniedError,
@@ -24,18 +20,24 @@ import type {
   Task,
 } from "@ottili/protocol";
 import {
+  assessStagnation,
   CompletionGate,
   DeterministicIndependentVerifier,
   type IndependentVerifier,
+  type ProgressAttempt,
 } from "@ottili/validation";
 
+import {
+  RunContextCompiler,
+  type ContextCompiler,
+  type RunContextCompilerOptions,
+} from "./context.js";
 import { AgentTurnEngine } from "./engine.js";
 import { createMissionTools } from "./mission-tools.js";
 import {
   classifyProviderFailure,
   retryDelayMs,
   type ProviderFailure,
-  type RuntimeMessage,
   type TurnProvider,
 } from "./provider.js";
 import {
@@ -47,6 +49,13 @@ import {
 
 export interface RunCoordinatorOptions {
   readonly completionGate?: CompletionGate;
+  /**
+   * Compiles each turn's context. The default reads the durable control plane
+   * plus the checked-out workspace; supply a custom one to change budgets or
+   * inject language-server diagnostics.
+   */
+  readonly contextCompiler?: ContextCompiler;
+  readonly context?: RunContextCompilerOptions;
   readonly independentVerifier?: IndependentVerifier;
   readonly maxToolCalls?: number;
   readonly model: string;
@@ -66,6 +75,7 @@ export type WorkspaceToolResolver = (input: {
  */
 export class RunCoordinator implements RunActionExecutor {
   private readonly completionGate: CompletionGate;
+  private readonly contextCompiler: ContextCompiler;
 
   public constructor(
     private readonly store: RunStore,
@@ -76,6 +86,9 @@ export class RunCoordinator implements RunActionExecutor {
       new CompletionGate(
         options.independentVerifier ?? new DeterministicIndependentVerifier(),
       );
+    this.contextCompiler =
+      options.contextCompiler ??
+      new RunContextCompiler(store, options.context ?? {});
   }
 
   public async execute(input: {
@@ -135,17 +148,30 @@ export class RunCoordinator implements RunActionExecutor {
     );
     const engine = new AgentTurnEngine(this.options.provider, durableTools);
     try {
+      const context = await this.contextCompiler.compile({
+        activeTask,
+        agent: acting,
+        inbox,
+        mission,
+        run,
+        signal: input.signal,
+      });
+      if (context.omitted.length > 0) {
+        this.store.appendFencedEvent({
+          lease: input.lease,
+          payload: {
+            agentId: acting.id,
+            omitted: [...context.omitted],
+            usedTokens: context.usedTokens,
+          },
+          type: "context.compacted",
+        });
+      }
       const result = await engine.run({
         ...(this.options.maxToolCalls === undefined
           ? {}
           : { maxToolCalls: this.options.maxToolCalls }),
-        messages: this.messagesForRun({
-          activeTask,
-          agent: acting,
-          inbox,
-          missionPrompt: mission.prompt,
-          runId: run.id,
-        }),
+        messages: context.messages,
         model: this.options.model,
         signal: input.signal,
       });
@@ -188,6 +214,7 @@ export class RunCoordinator implements RunActionExecutor {
         reason: "completed",
       });
       this.settleActingAgent(acting, input.lease);
+      this.reactToStagnation(run.id, input.lease, acting);
 
       const requestedCompletion = result.toolExecutions.some(
         (execution) =>
@@ -359,6 +386,156 @@ export class RunCoordinator implements RunActionExecutor {
       });
     }
     this.store.transitionAgent({ agentId: agent.id, lease, to: "completed" });
+  }
+
+  /**
+   * Turns repeated no-progress turns into a durable strategy change.
+   *
+   * Stagnation is judged from persisted facts — new evidence, workspace
+   * changes, task transitions, repeated tool failures — never from anything an
+   * agent claims. It is also not terminal: the escalation path is replan, then
+   * a fresh agent, and only then a recorded blocker that asks for input.
+   */
+  private reactToStagnation(
+    runId: RunId,
+    lease: RunLease,
+    acting: Agent,
+  ): void {
+    const assessment = assessStagnation(this.progressAttempts(runId));
+    if (assessment.action === "continue") return;
+    this.store.appendFencedEvent({
+      lease,
+      payload: {
+        action: assessment.action,
+        agentId: acting.id,
+        reason: assessment.reason,
+        repeatedBlockerCount: assessment.repeatedBlockerCount,
+      },
+      type: "agent.progress",
+    });
+
+    if (assessment.action === "replan") {
+      // Return the agent's task to the pool so the next turn re-derives an
+      // approach instead of repeating the one that is not working.
+      for (const task of this.store.listTasks(runId, {
+        ownerAgentId: acting.id,
+        status: ["running"],
+      })) {
+        this.store.transitionTask({
+          error: assessment.reason,
+          lease,
+          taskId: task.id,
+          to: "failed",
+        });
+      }
+      return;
+    }
+
+    if (assessment.action === "fresh_agent") {
+      // A different agent brings a different context and role, which is the
+      // cheapest real strategy change available before escalating.
+      const stuck = this.store
+        .listTasks(runId, { ownerAgentId: acting.id, status: ["running"] })
+        .at(0);
+      if (stuck === undefined) return;
+      this.store.transitionTask({
+        error: assessment.reason,
+        lease,
+        taskId: stuck.id,
+        to: "failed",
+      });
+      const replacement = this.store.spawnAgent({
+        lease,
+        parentAgentId: acting.id,
+        permissions: acting.permissions,
+        role: acting.role === "debugger" ? "reviewer" : "debugger",
+        runId,
+        sandbox: acting.sandbox,
+        taskId: stuck.id,
+      });
+      this.store.transitionAgent({
+        agentId: replacement.id,
+        lease,
+        to: "queued",
+      });
+      this.store.sendAgentMessage({
+        body: {
+          reason: assessment.reason,
+          taskId: stuck.id,
+          title: stuck.title,
+        },
+        fromAgentId: acting.id,
+        kind: "task_assignment",
+        lease,
+        taskId: stuck.id,
+        toAgentId: replacement.id,
+      });
+      return;
+    }
+
+    // `blocked` records a durable problem. The Run keeps its state machine
+    // honest: the Store decides whether the problem blocks the Run.
+    this.store.recordProblem({
+      alternateActionAvailable: false,
+      externalDependency: false,
+      fingerprint: `stagnation:${runId}`,
+      meaningful: true,
+      runId,
+      summary: assessment.reason,
+    });
+  }
+
+  /**
+   * Derives progress facts from durable events. A turn counts as progress when
+   * it produced evidence, a validation, a task transition, or a workspace
+   * side effect that actually succeeded.
+   */
+  private progressAttempts(runId: RunId): readonly ProgressAttempt[] {
+    const attempts: ProgressAttempt[] = [];
+    let current:
+      | {
+          evidenceAdded: boolean;
+          meaningfulChange: boolean;
+          blockerFingerprint?: string;
+          timestamp: string;
+        }
+      | undefined;
+    for (const event of this.store.listEvents(runId)) {
+      if (event.type === "agent.turn_started") {
+        if (current !== undefined) attempts.push({ ...current });
+        current = {
+          evidenceAdded: false,
+          meaningfulChange: false,
+          timestamp: event.createdAt,
+        };
+        continue;
+      }
+      if (current === undefined) continue;
+      if (event.type === "validation.finished") current.evidenceAdded = true;
+      if (
+        event.type === "task.status_changed" &&
+        event.payload.to === "completed"
+      ) {
+        current.meaningfulChange = true;
+      }
+      if (event.type === "tool.call_finished") {
+        const error = event.payload.error;
+        if (typeof error === "object" && error !== null && "message" in error) {
+          current.blockerFingerprint = String(
+            (error as { readonly message?: unknown }).message,
+          );
+        } else {
+          current.meaningfulChange = true;
+        }
+      }
+      if (event.type === "provider.failed") {
+        current.blockerFingerprint = String(
+          event.payload.message ?? "provider",
+        );
+      }
+    }
+    if (current !== undefined) attempts.push({ ...current });
+    return attempts;
   }
 
   /** A pause/cancel is not a provider outage and must never schedule a retry. */
@@ -574,131 +751,6 @@ export class RunCoordinator implements RunActionExecutor {
       : this.options.tools({ runId, workspaceUri });
   }
 
-  /**
-   * Rebuilds a bounded transcript only from durable events, snapshots, and
-   * memory. No live chat connection is consulted, so a replacement daemon can
-   * continue a goal without requiring a new user prompt.
-   */
-  private messagesForRun(input: {
-    readonly activeTask: Task | undefined;
-    readonly agent: Agent;
-    readonly inbox: readonly AgentMessage[];
-    readonly missionPrompt: string;
-    readonly runId: RunId;
-  }): readonly RuntimeMessage[] {
-    const { agent, missionPrompt, runId } = input;
-    const history: RuntimeMessage[] = [];
-    for (const event of this.store.listEvents(runId)) {
-      const payload = event.payload;
-      if (
-        event.type === "steering.received" &&
-        typeof payload.text === "string"
-      ) {
-        history.push({ content: payload.text, role: "user" });
-      } else if (
-        event.type === "agent.message" &&
-        typeof payload.text === "string"
-      ) {
-        history.push({ content: payload.text, role: "assistant" });
-      } else if (
-        event.type === "tool.call_started" &&
-        typeof payload.name === "string"
-      ) {
-        history.push({
-          content: `Tool invoked: ${payload.name}.`,
-          role: "assistant",
-        });
-      } else if (
-        event.type === "tool.call_finished" &&
-        typeof payload.toolCallId === "string"
-      ) {
-        const output = payload.output;
-        const content =
-          output === undefined
-            ? "Tool finished without serializable output."
-            : stringifyForContext(output);
-        history.push({ content, role: "tool", toolCallId: payload.toolCallId });
-      }
-    }
-    const snapshots = this.store.listContextSnapshots(runId);
-    const latestSnapshot = snapshots.at(-1);
-    const memories = this.store
-      .listMemoryEntries(runId)
-      .filter((entry) => entry.confidence >= 0.5)
-      .slice(-4);
-    const retained = trimMessages(history, 48, 48_000);
-    return [
-      { content: roleBriefing(agent), role: "system" },
-      { content: missionPrompt, role: "user" },
-      ...(latestSnapshot === undefined
-        ? []
-        : [
-            {
-              content: `Prior context checkpoint:\n${latestSnapshot.summary}`,
-              role: "system" as const,
-            },
-          ]),
-      ...memories.map((entry) => ({
-        content: `Durable memory: ${entry.content}`,
-        role: "system" as const,
-      })),
-      {
-        content: this.taskBriefing(runId, input.activeTask),
-        role: "system",
-      },
-      ...(input.inbox.length === 0
-        ? []
-        : [
-            {
-              content: `Messages addressed to you:\n${input.inbox
-                .map(
-                  (message) =>
-                    `- ${message.kind} from ${message.fromAgentId ?? "the run"}: ${JSON.stringify(message.body)}`,
-                )
-                .join("\n")}`,
-              role: "system" as const,
-            },
-          ]),
-      ...retained,
-    ];
-  }
-
-  /** The durable graph is stated explicitly; it is not inferred from chat. */
-  private taskBriefing(runId: RunId, activeTask: Task | undefined): string {
-    const tasks = this.store.listTasks(runId);
-    const requirements = this.store.listRequirements(runId);
-    const lines = [
-      activeTask === undefined
-        ? "You own no task right now. Use plan_tasks to break the mission down, or take the next ready task."
-        : `Your current task is '${activeTask.title}' (${activeTask.id}): ${activeTask.description}`,
-    ];
-    if (tasks.length > 0) {
-      lines.push(
-        `Task graph:\n${tasks
-          .map(
-            (task) =>
-              `- ${task.id} [${task.status}] ${task.title}${
-                task.dependencyIds.length === 0
-                  ? ""
-                  : ` (after ${task.dependencyIds.join(", ")})`
-              }`,
-          )
-          .join("\n")}`,
-      );
-    }
-    if (requirements.length > 0) {
-      lines.push(
-        `Requirements the completion gate will re-audit:\n${requirements
-          .map(
-            (requirement) =>
-              `- ${requirement.id} [${requirement.status}${requirement.required ? ", required" : ", optional"}] ${requirement.title}`,
-          )
-          .join("\n")}`,
-      );
-    }
-    return lines.join("\n\n");
-  }
-
   private handleFailure(
     action: ScheduledAction,
     lease: RunLease,
@@ -773,51 +825,11 @@ function mergeRegistries(registries: readonly ToolRegistry[]): ToolRegistry {
   return merged;
 }
 
-function roleBriefing(agent: Agent): string {
-  const shared =
-    "Record durable evidence with record_evidence/record_validation; the completion gate re-audits the ledger and ignores any claim of being finished. A normal response never finishes the Run.";
-  switch (agent.role) {
-    case "coordinator":
-      return `You are the Ottili mission coordinator. Break the mission into durable tasks, delegate specialised work with delegate_task, and drive toward independently verifiable completion. ${shared}`;
-    case "researcher":
-      return `You are an Ottili research agent. Investigate the workspace and report findings to the coordinator. Do not change code. ${shared}`;
-    case "implementer":
-      return `You are an Ottili implementation agent. Make the smallest correct change that satisfies your task. ${shared}`;
-    case "debugger":
-      return `You are an Ottili debugging agent. Reproduce the failure first, then explain and fix its cause. ${shared}`;
-    case "reviewer":
-      return `You are an Ottili review agent. Review the change critically and independently; do not accept it because it was requested. ${shared}`;
-    case "verifier":
-      return `You are an Ottili verification agent. Re-derive whether the requirements are actually proven by the recorded evidence. ${shared}`;
-    default:
-      return `You are an Ottili specialist agent working one task of a larger mission. ${shared}`;
-  }
-}
-
 function stringifyForContext(value: JsonValue): string {
   const encoded = JSON.stringify(value);
   return encoded.length <= 8_000
     ? encoded
     : `${encoded.slice(0, 8_000)}\n[durable tool output truncated]`;
-}
-
-function trimMessages(
-  messages: readonly RuntimeMessage[],
-  maximumMessages: number,
-  maximumCharacters: number,
-): readonly RuntimeMessage[] {
-  const retained: RuntimeMessage[] = [];
-  let characters = 0;
-  for (const message of [...messages].reverse()) {
-    if (
-      retained.length >= maximumMessages ||
-      characters + message.content.length > maximumCharacters
-    )
-      break;
-    retained.push(message);
-    characters += message.content.length;
-  }
-  return retained.reverse();
 }
 
 function summarizeContext(

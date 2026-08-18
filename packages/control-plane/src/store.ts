@@ -108,6 +108,9 @@ export interface Clock {
 
 const systemClock: Clock = { now: () => new Date() };
 
+/** A task that has failed this many times stops being automatically retried. */
+export const MAX_TASK_ATTEMPTS = 5;
+
 const defaultPermissions: PermissionPolicy = { mode: "standard" };
 const defaultSandbox: SandboxPolicy = {
   filesystem: { readOnlyRoots: [], writableRoots: [] },
@@ -2774,10 +2777,19 @@ export class RunStore {
     );
   }
 
+  /**
+   * Promotes work whose dependencies are satisfied. A failed task is retryable
+   * rather than terminal — a stuck attempt should change strategy, not end the
+   * mission — but only up to `MAX_TASK_ATTEMPTS`, after which it stays failed
+   * so a genuinely impossible task cannot spin forever.
+   */
   private refreshTaskReadinessInternal(runId: RunId, now: string): void {
     const pending = this.database.all(
-      "SELECT * FROM tasks WHERE run_id = ? AND status = 'pending'",
+      `SELECT * FROM tasks
+       WHERE run_id = ?
+         AND (status = 'pending' OR (status = 'failed' AND attempt < ?))`,
       runId,
+      MAX_TASK_ATTEMPTS,
     );
     for (const row of pending) {
       const taskId = asString(row, "id");

@@ -6,12 +6,18 @@ const rules = new Map([
   ["protocol", new Set()],
   ["core", new Set(["@ottili/protocol"])],
   [
+    // The runtime owns context compilation, so it may read the context and
+    // workspace services. Integrations (MCP/LSP) stay outside: they are
+    // injected as ports so process supervision never enters the turn loop.
     "runtime",
     new Set([
+      "@ottili/context",
+      "@ottili/context-format",
       "@ottili/control-plane",
       "@ottili/core",
       "@ottili/protocol",
       "@ottili/validation",
+      "@ottili/workspace",
     ]),
   ],
   ["control-plane", new Set(["@ottili/core", "@ottili/protocol"])],

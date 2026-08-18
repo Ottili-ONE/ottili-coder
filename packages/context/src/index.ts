@@ -1,6 +1,11 @@
 export { ProjectMemory, redactSecrets } from "./memory.js";
 export { ContextPlanner, planContext } from "./planner.js";
-export { RepoMap, buildRepoMap, extractRepoMapSymbols } from "./repomap.js";
+export {
+  RepoMap,
+  buildRepoMap,
+  extractRepoMapSymbols,
+  readRepositoryFiles,
+} from "./repomap.js";
 export { SemanticIndex } from "./semantic-index.js";
 
 export type {

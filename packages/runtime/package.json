@@ -5,9 +5,12 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
+    "@ottili/context": "workspace:*",
+    "@ottili/context-format": "workspace:*",
     "@ottili/control-plane": "workspace:*",
     "@ottili/core": "workspace:*",
     "@ottili/protocol": "workspace:*",
-    "@ottili/validation": "workspace:*"
+    "@ottili/validation": "workspace:*",
+    "@ottili/workspace": "workspace:*"
   }
 }

@@ -117,6 +117,12 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@ottili/context':
+        specifier: workspace:*
+        version: link:../context
+      '@ottili/context-format':
+        specifier: workspace:*
+        version: link:../context-format
       '@ottili/control-plane':
         specifier: workspace:*
         version: link:../control-plane
@@ -129,6 +135,9 @@ importers:
       '@ottili/validation':
         specifier: workspace:*
         version: link:../validation
+      '@ottili/workspace':
+        specifier: workspace:*
+        version: link:../workspace
 
   packages/sdk:
     dependencies:

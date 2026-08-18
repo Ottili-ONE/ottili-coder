@@ -1,5 +1,6 @@
 export * from "./coordinator.js";
 export * from "./builtins.js";
+export * from "./context.js";
 export * from "./command-target.js";
 export * from "./engine.js";
 export * from "./mission-tools.js";

@@ -309,18 +309,23 @@ describe("RunStore durable control plane", () => {
     const directory = await mkdtemp(join(tmpdir(), "ottili-v2-upgrade-"));
     const path = join(directory, "state.db");
     try {
-      const v2Store = new RunStore(
-        new SqliteDatabase(path, { migrationTargetVersion: 2 }),
-      );
+      const v2Database = new SqliteDatabase(path, {
+        migrationTargetVersion: 2,
+      });
+      const v2Store = new RunStore(v2Database);
       const created = v2Store.createRun({
         prompt: "Survive a schema upgrade.",
         workspaceUri: "file:///upgrade",
       });
-      const task = v2Store.createTask({
-        description: "Written before migration 3 existed.",
-        runId: created.run.id,
-        title: "Legacy task",
-      });
+      // Written the way a release without migration 3 would have written it:
+      // the newer columns simply do not exist yet.
+      v2Database.run(
+        `INSERT INTO tasks (id, run_id, title, description, status, created_at, updated_at)
+         VALUES ('task_legacyfixture', ?, 'Legacy task', 'Written before migration 3 existed.', 'ready', ?, ?)`,
+        created.run.id,
+        "2026-08-17T00:00:00.000Z",
+        "2026-08-17T00:00:00.000Z",
+      );
       const eventCount = v2Store.listEvents(created.run.id).length;
       v2Store.close();
 
@@ -335,13 +340,14 @@ describe("RunStore durable control plane", () => {
         id: created.run.id,
         status: "running",
       });
-      // Pre-existing rows keep their identity and gain the new defaults.
-      expect(upgraded.getTask(task.id)).toMatchObject({
-        id: task.id,
-        status: "ready",
-        title: "Legacy task",
-      });
-      expect(upgraded.listTasks(created.run.id)).toHaveLength(1);
+      // The pre-existing row keeps its identity and gains the new defaults.
+      expect(upgraded.listTasks(created.run.id)).toEqual([
+        expect.objectContaining({
+          attempt: 0,
+          status: "ready",
+          title: "Legacy task",
+        }),
+      ]);
       expect(upgraded.listAgentMessages(created.run.id)).toEqual([]);
       expect(upgraded.listEvents(created.run.id).length).toBe(eventCount);
       upgraded.close();
