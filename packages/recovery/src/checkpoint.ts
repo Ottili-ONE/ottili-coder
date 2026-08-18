@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   GitService,
+  isSamePath,
   recoverySnapshotRefFor,
   type GitCheckpointSnapshot,
 } from "@ottili/workspace";
@@ -271,8 +272,11 @@ export class CheckpointService<TState = CheckpointState> {
         throw new CheckpointNotFoundError(checkpointId);
       }
 
+      // Compare locations, not strings: a checkpoint written before a
+      // restart can carry a different spelling of the same directory
+      // (symlinked parents on macOS, drive-letter case on Windows).
       const currentWorkspacePath = await this.git.getRepositoryRoot();
-      if (currentWorkspacePath !== checkpoint.workspacePath) {
+      if (!(await isSamePath(currentWorkspacePath, checkpoint.workspacePath))) {
         return {
           outcome: "preparation_failed",
           checkpoint,

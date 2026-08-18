@@ -13,6 +13,11 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Keep checkouts on LF
+        # .gitattributes already pins `eol=lf`, which outranks core.autocrlf.
+        # This is defence in depth for any path the attributes do not match:
+        # a CRLF checkout fails `prettier --check` on the entire tree at once.
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -22,6 +27,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check:eol
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm check:boundaries

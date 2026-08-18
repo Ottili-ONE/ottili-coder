@@ -26,6 +26,7 @@ import {
   type ResolveApprovalResponse,
   type RunCommandRequest,
   type RunId,
+  type ShutdownDaemonResponse,
   type SseEvent,
   type SteeringInputRequest,
   type VersionResponse,
@@ -40,6 +41,13 @@ export interface DaemonServerOptions {
   readonly token?: string;
   /** Ephemeral wake-up/abort hook; durable command truth remains in RunStore. */
   readonly onRunCommand?: (runId: RunId, command: DurableRunCommand) => void;
+  /**
+   * Enables cooperative shutdown over the protocol. Signals are the POSIX way
+   * to ask a daemon to stop, but Windows has no graceful equivalent: Node maps
+   * `process.kill(pid, "SIGTERM")` onto `TerminateProcess`, which never runs
+   * the handler. A protocol request stops the daemon the same way everywhere.
+   */
+  readonly onShutdownRequest?: (reason: string) => void;
 }
 
 export interface DaemonAddress {
@@ -58,6 +66,7 @@ export class OttiliDaemonServer {
   private readonly token: string | undefined;
   private readonly onRunCommand:
     ((runId: RunId, command: DurableRunCommand) => void) | undefined;
+  private readonly onShutdownRequest: ((reason: string) => void) | undefined;
   private server: Server | undefined;
   private readonly eventStreams = new Set<ServerResponse>();
 
@@ -71,6 +80,7 @@ export class OttiliDaemonServer {
     this.serverVersion = options.serverVersion ?? "0.1.0";
     this.token = options.token;
     this.onRunCommand = options.onRunCommand;
+    this.onShutdownRequest = options.onShutdownRequest;
     if (!isLoopbackHost(this.host) && this.token === undefined) {
       throw new Error(
         "A daemon bound beyond loopback requires an authentication token.",
@@ -119,6 +129,57 @@ export class OttiliDaemonServer {
     };
   }
 
+  private async handleShutdown(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const onShutdownRequest = this.onShutdownRequest;
+    if (onShutdownRequest === undefined) {
+      this.respondError(response, 501, {
+        code: "unsupported",
+        message: "This daemon does not accept protocol shutdown requests.",
+        retryable: false,
+      });
+      return;
+    }
+    const body = await readObject(request);
+    const requestedInstance = body.instanceId;
+    if (
+      typeof requestedInstance !== "string" ||
+      requestedInstance.length === 0
+    ) {
+      this.respondError(response, 400, {
+        code: "invalid_request",
+        message: "A shutdown request must name the daemon instance to stop.",
+        retryable: false,
+      });
+      return;
+    }
+    // A descriptor can outlive the daemon that wrote it. Refusing a mismatched
+    // identity keeps a stale client from stopping its replacement.
+    if (requestedInstance !== this.instanceId) {
+      this.respondError(response, 409, {
+        code: "conflict",
+        message: `This daemon instance is '${this.instanceId}', not '${requestedInstance}'.`,
+        retryable: false,
+      });
+      return;
+    }
+    const reason =
+      typeof body.reason === "string" && body.reason.length > 0
+        ? body.reason
+        : "Protocol shutdown request";
+    // Answer first: closing the server before the response flushes would look
+    // like a failed request and hide an otherwise clean shutdown.
+    response.once("close", () => {
+      setImmediate(() => onShutdownRequest(reason));
+    });
+    this.respond(response, 202, {
+      accepted: true,
+      instanceId: this.instanceId,
+    } satisfies ShutdownDaemonResponse);
+  }
+
   private async handle(
     request: IncomingMessage,
     response: ServerResponse,
@@ -151,6 +212,10 @@ export class OttiliDaemonServer {
           protocolVersion: PROTOCOL_VERSION,
           serverVersion: this.serverVersion,
         } satisfies VersionResponse);
+        return;
+      }
+      if (method === "POST" && url.pathname === "/v1/daemon/shutdown") {
+        await this.handleShutdown(request, response);
         return;
       }
       if (method === "POST" && url.pathname === "/v1/runs") {

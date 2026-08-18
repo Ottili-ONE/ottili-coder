@@ -22,6 +22,7 @@ export {
   type GitStatusEntryKind,
   type RepositoryIdentity,
 } from "./git.js";
+export { canonicalizePath, canonicalPathsEqual, isSamePath } from "./paths.js";
 export {
   WorktreeManager,
   type CreateWorktreeOptions,

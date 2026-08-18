@@ -45,6 +45,7 @@ async function main(): Promise<void> {
           id: "configured-openai-compatible",
         });
   const daemon = new DurableDaemon({
+    allowProtocolShutdown: true,
     databasePath:
       process.env.OTTILI_CODER_DATABASE ?? join(configDirectory, "coder.db"),
     executor: (store) =>
@@ -67,14 +68,17 @@ async function main(): Promise<void> {
     },
   });
   await daemon.start();
-  let closing = false;
+  let closing: Promise<void> | undefined;
   const shutdown = async (): Promise<void> => {
-    if (closing) return;
-    closing = true;
-    await daemon.close();
+    closing ??= daemon.close();
+    await closing;
   };
+  // POSIX hosts stop daemons with signals. Windows has no graceful signal, so
+  // the protocol shutdown request is the portable path; both converge here.
   process.once("SIGINT", () => void shutdown());
   process.once("SIGTERM", () => void shutdown());
+  await daemon.whenShutdownRequested();
+  await shutdown();
 }
 
 function workspacePath(workspaceUri: string, fallback: string): string {

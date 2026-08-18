@@ -3,13 +3,16 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { OttiliClient } from "@ottili/sdk";
+
 import {
   isProcessAlive,
   readDaemonDescriptor,
+  startDaemon,
   stopDaemon,
 } from "../../apps/cli/src/daemon-client.js";
 import { runCli, type CliWriter } from "../../apps/cli/src/commands.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const configDirectories: string[] = [];
 
@@ -133,6 +136,39 @@ describe("bundled CLI daemon lifecycle", () => {
     expect(
       descriptor.pid === undefined ? false : isProcessAlive(descriptor.pid),
     ).toBe(false);
+  });
+
+  // Windows has no graceful termination signal: `process.kill(pid, "SIGTERM")`
+  // is mapped onto TerminateProcess, so the daemon's handler never runs. The
+  // protocol request must be able to stop the process entirely on its own.
+  it("stops a bundled daemon through the protocol without any signal", async () => {
+    const configDirectory = await mkdtemp(
+      join(tmpdir(), "ottili-cli-shutdown-"),
+    );
+    configDirectories.push(configDirectory);
+    const url = `http://127.0.0.1:${await freeLoopbackPort()}`;
+
+    const { descriptor } = await startDaemon({
+      configDirectory,
+      environment: {},
+      url,
+      waitMs: 10_000,
+    });
+    expect(descriptor.instanceId).toEqual(expect.any(String));
+    expect(descriptor.pid).toEqual(expect.any(Number));
+    const pid = descriptor.pid;
+    const instanceId = descriptor.instanceId;
+    if (pid === undefined || instanceId === undefined) {
+      throw new Error("Bundled daemon descriptor is incomplete.");
+    }
+
+    await expect(
+      new OttiliClient({ baseUrl: url }).shutdown(instanceId, "test"),
+    ).resolves.toMatchObject({ accepted: true });
+    await vi.waitFor(() => expect(isProcessAlive(pid)).toBe(false), {
+      interval: 25,
+      timeout: 10_000,
+    });
   });
 });
 

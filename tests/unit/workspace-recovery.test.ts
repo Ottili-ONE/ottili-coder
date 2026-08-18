@@ -1,5 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +20,8 @@ import {
 } from "@ottili/recovery";
 import {
   assessSandboxEnforcement,
+  canonicalizePath,
+  canonicalPathsEqual,
   createSandboxProfile,
   detectSandboxCapabilities,
   GitService,
@@ -138,12 +147,81 @@ describe("GitService checkpoints", () => {
       branch: "agent-work",
       path: linkedPath,
     });
-    expect(created.path).toBe(linkedPath);
     expect(
-      (await manager.list()).some((record) => record.path === linkedPath),
+      canonicalPathsEqual(
+        await canonicalizePath(created.path),
+        await canonicalizePath(linkedPath),
+      ),
     ).toBe(true);
+    expect(await manager.find(linkedPath)).toBeDefined();
     await expect(manager.remove(directory)).rejects.toThrow("primary worktree");
     await manager.remove(linkedPath);
+    expect(await manager.find(linkedPath)).toBeUndefined();
+  });
+
+  // macOS CI failed here: `os.tmpdir()` is `/var/folders/...`, a symlink to
+  // `/private/var/folders/...`. Git prints the resolved location, so comparing
+  // it against `path.resolve` made a freshly created worktree look missing.
+  it("manages worktrees when the workspace is reached through a symbolic link", async () => {
+    const realRoot = await mkdtemp(join(tmpdir(), "ottili-worktree-real-"));
+    temporaryDirectories.push(realRoot);
+    const linkRoot = join(
+      tmpdir(),
+      `ottili-worktree-link-${Date.now()}-${Math.random()}`,
+    );
+    await symlink(realRoot, linkRoot, "dir");
+    temporaryDirectories.push(linkRoot);
+
+    const realRepository = join(realRoot, "repository");
+    await mkdir(realRepository);
+    await git(realRepository, ["init", "--initial-branch=main"]);
+    await git(realRepository, ["config", "user.email", "tests@ottili.local"]);
+    await git(realRepository, ["config", "user.name", "Ottili Tests"]);
+    await git(realRepository, ["commit", "--allow-empty", "-m", "initial"]);
+
+    const linkedRepository = join(linkRoot, "repository");
+    const manager = new WorktreeManager(new GitService(linkedRepository));
+    const linkedWorktree = join(linkRoot, "agent-worktree");
+
+    const created = await manager.create({
+      branch: "agent-work",
+      path: linkedWorktree,
+    });
+    // Git reports the resolved location; the caller still addresses the link.
+    expect(created.path).toBe(join(realRoot, "agent-worktree"));
+    expect(await manager.find(linkedWorktree)).toBeDefined();
+    await expect(manager.create({ path: linkedRepository })).rejects.toThrow(
+      "primary worktree",
+    );
+    await expect(manager.remove(linkedRepository)).rejects.toThrow(
+      "primary worktree",
+    );
+
+    await manager.lock(linkedWorktree, "held by a test");
+    expect((await manager.find(linkedWorktree))?.lockedReason).toBe(
+      "held by a test",
+    );
+    await manager.unlock(linkedWorktree);
+    await manager.remove(linkedWorktree);
+    expect(await manager.find(linkedWorktree)).toBeUndefined();
+  });
+
+  it("canonicalizes paths that do not exist yet", async () => {
+    const realRoot = await mkdtemp(join(tmpdir(), "ottili-canonical-real-"));
+    temporaryDirectories.push(realRoot);
+    const linkRoot = join(
+      tmpdir(),
+      `ottili-canonical-link-${Date.now()}-${Math.random()}`,
+    );
+    await symlink(realRoot, linkRoot, "dir");
+    temporaryDirectories.push(linkRoot);
+
+    expect(await canonicalizePath(join(linkRoot, "missing", "child"))).toBe(
+      join(realRoot, "missing", "child"),
+    );
+    expect(canonicalPathsEqual("/a/B", "/a/b", "linux")).toBe(false);
+    expect(canonicalPathsEqual("/a/B", "/a/b", "darwin")).toBe(true);
+    expect(canonicalPathsEqual("C:\\Temp", "c:\\temp", "win32")).toBe(true);
   });
 
   it("parses porcelain-v2 rename records without losing the original path", async () => {

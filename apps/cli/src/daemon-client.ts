@@ -239,27 +239,19 @@ export async function startDaemon(
     return { alreadyRunning: true, descriptor };
   }
 
-  const command =
-    options.command ??
-    environment.OTTILI_DAEMON_COMMAND ??
-    bundledDaemonCommand();
-  // `exec` replaces the short-lived shell with the daemon. That keeps the PID
-  // recorded in the descriptor attached to the process that owns the server,
-  // so `daemon stop` cannot strand an orphaned daemon.
-  const child = spawn(`exec ${command}`, {
-    cwd: process.cwd(),
-    detached: true,
-    env: {
-      ...process.env,
-      ...environment,
-      OTTILI_CODER_CONFIG_DIR: configDirectory,
-      OTTILI_CODER_DAEMON_DESCRIPTOR: daemonDescriptorPath(configDirectory),
-      OTTILI_CODER_DAEMON_URL: url,
-      ...(token === undefined ? {} : { OTTILI_CODER_DAEMON_TOKEN: token }),
-    },
-    shell: true,
-    stdio: "ignore",
-  });
+  const command = options.command ?? environment.OTTILI_DAEMON_COMMAND;
+  const childEnvironment = {
+    ...process.env,
+    ...environment,
+    OTTILI_CODER_CONFIG_DIR: configDirectory,
+    OTTILI_CODER_DAEMON_DESCRIPTOR: daemonDescriptorPath(configDirectory),
+    OTTILI_CODER_DAEMON_URL: url,
+    ...(token === undefined ? {} : { OTTILI_CODER_DAEMON_TOKEN: token }),
+  };
+  const child =
+    command === undefined
+      ? spawnBundledDaemon(childEnvironment)
+      : spawnDaemonCommand(command, childEnvironment);
   child.unref();
 
   const startedAt = new Date().toISOString();
@@ -293,7 +285,15 @@ export async function startDaemon(
   return { alreadyRunning: false, descriptor, process: child };
 }
 
-function bundledDaemonCommand(): string {
+/**
+ * Spawns the bundled daemon with an explicit argv and no shell. The spawned
+ * process is the daemon itself, so the descriptor PID always identifies the
+ * process that owns the server — on Windows as well, where the POSIX `exec`
+ * builtin that a shell would need does not exist.
+ */
+function spawnBundledDaemon(
+  environment: NodeJS.ProcessEnv,
+): ReturnType<typeof spawn> {
   const currentModule = fileURLToPath(import.meta.url);
   const sourceExtension = extname(currentModule);
   const daemonEntry = join(
@@ -302,9 +302,37 @@ function bundledDaemonCommand(): string {
   );
   // Development is deliberately explicit about the TS loader. Built packages
   // use plain Node against the sibling compiled daemon entrypoint.
-  return sourceExtension === ".ts"
-    ? `"${process.execPath}" --import tsx "${daemonEntry}"`
-    : `"${process.execPath}" "${daemonEntry}"`;
+  const args =
+    sourceExtension === ".ts"
+      ? ["--import", "tsx", daemonEntry]
+      : [daemonEntry];
+  return spawn(process.execPath, args, {
+    cwd: process.cwd(),
+    detached: true,
+    env: environment,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+}
+
+/**
+ * Runs an operator-supplied daemon command string. A shell is unavoidable
+ * here because the value is free-form. On POSIX, `exec` replaces the shell so
+ * the recorded PID still owns the server; `cmd.exe` has no equivalent, so a
+ * Windows override is stopped through the protocol rather than by PID.
+ */
+function spawnDaemonCommand(
+  command: string,
+  environment: NodeJS.ProcessEnv,
+): ReturnType<typeof spawn> {
+  return spawn(process.platform === "win32" ? command : `exec ${command}`, {
+    cwd: process.cwd(),
+    detached: true,
+    env: environment,
+    shell: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
 }
 
 export async function stopDaemon(
@@ -318,29 +346,43 @@ export async function stopDaemon(
   }
   if (descriptor.instanceId === undefined) {
     throw new DaemonUnavailableError(
-      `Refusing to signal daemon PID ${descriptor.pid}: descriptor has no immutable daemon identity. Remove the stale descriptor after verifying the process manually.`,
+      `Refusing to stop daemon PID ${descriptor.pid}: descriptor has no immutable daemon identity. Remove the stale descriptor after verifying the process manually.`,
     );
   }
+  const connection = await connectDaemon(options);
   let actualInstanceId: string | undefined;
   try {
-    actualInstanceId = (await (await connectDaemon(options)).client.health())
-      .instanceId;
+    actualInstanceId = (await connection.client.health()).instanceId;
   } catch (error: unknown) {
     throw new DaemonUnavailableError(
-      `Refusing to signal daemon PID ${descriptor.pid}: endpoint identity could not be verified (${messageOf(error)}).`,
+      `Refusing to stop daemon PID ${descriptor.pid}: endpoint identity could not be verified (${messageOf(error)}).`,
     );
   }
   if (actualInstanceId !== descriptor.instanceId) {
     throw new DaemonUnavailableError(
-      `Refusing to signal daemon PID ${descriptor.pid}: descriptor instance identity does not match the endpoint.`,
+      `Refusing to stop daemon PID ${descriptor.pid}: descriptor instance identity does not match the endpoint.`,
     );
   }
+
+  // Ask over the protocol first. The daemon then closes the scheduler, HTTP
+  // server, and database in order on every platform. A signal is the fallback
+  // for daemons that predate the endpoint or refuse the request; on Windows a
+  // signal cannot be graceful at all, so there it is a last resort.
+  const shutdownRequested = await requestProtocolShutdown(
+    connection,
+    descriptor.instanceId,
+  );
+  if (shutdownRequested && (await hasStopped(descriptor.pid, 5_000))) {
+    await removeDaemonDescriptor(options.configDirectory);
+    return { descriptor, stopped: true };
+  }
+
   try {
     process.kill(descriptor.pid, "SIGTERM");
   } catch (error: unknown) {
     if (isMissingProcess(error)) {
       await removeDaemonDescriptor(options.configDirectory);
-      return { descriptor, stopped: false };
+      return { descriptor, stopped: shutdownRequested };
     }
     throw new DaemonUnavailableError(
       `Could not stop daemon process ${descriptor.pid}: ${messageOf(error)}`,
@@ -349,6 +391,20 @@ export async function stopDaemon(
   await waitForStopped(descriptor.pid, 5_000);
   await removeDaemonDescriptor(options.configDirectory);
   return { descriptor, stopped: true };
+}
+
+async function requestProtocolShutdown(
+  connection: DaemonConnection,
+  instanceId: string,
+): Promise<boolean> {
+  try {
+    await connection.client.shutdown(instanceId, "ottili-coder daemon stop");
+    return true;
+  } catch {
+    // An older daemon answers 501 and a racing shutdown can drop the socket.
+    // Either way the signal path below is still available.
+    return false;
+  }
 }
 
 export async function restartDaemon(
@@ -387,6 +443,15 @@ async function waitForReady(
   throw new DaemonUnavailableError(
     `Daemon did not become ready within ${options.waitMs} ms.${lastError === undefined ? "" : ` Last error: ${messageOf(lastError)}`}`,
   );
+}
+
+/** Waits for process exit without failing when it is still running. */
+async function hasStopped(pid: number, waitMs: number): Promise<boolean> {
+  const timeoutAt = Date.now() + waitMs;
+  while (isProcessAlive(pid) && Date.now() < timeoutAt) {
+    await delay(25);
+  }
+  return !isProcessAlive(pid);
 }
 
 async function waitForStopped(pid: number, waitMs: number): Promise<void> {

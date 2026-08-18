@@ -1,0 +1,29 @@
+# Ottili Coder is developed on Linux, macOS, and Windows. Git's Windows
+# defaults check text files out with CRLF, which makes `prettier --check`
+# report every file as unformatted because Prettier's `endOfLine` is `lf`.
+# Normalizing in the repository and checking out LF everywhere keeps one
+# formatting contract instead of a per-platform exception.
+* text=auto eol=lf
+
+# Lockfiles and generated manifests are text but never hand-formatted.
+pnpm-lock.yaml text eol=lf -diff
+
+# Shell scripts must keep LF or they fail to execute; batch files need CRLF.
+*.sh text eol=lf
+*.bash text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be line-ending normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.db binary

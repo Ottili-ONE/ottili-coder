@@ -1,7 +1,7 @@
 import { OttiliDaemonServer } from "@ottili/server";
 import { OttiliClient } from "@ottili/sdk";
 import { RunStore, SqliteDatabase } from "@ottili/control-plane";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const servers: OttiliDaemonServer[] = [];
 
@@ -98,6 +98,39 @@ describe("daemon HTTP + SSE boundary", () => {
     );
     expect(paused.run.revision).toBe(retried.run.revision);
     expect(retried.run.status).toBe("paused");
+  });
+
+  it("stops cooperatively over the protocol only for the running instance", async () => {
+    const store = new RunStore(new SqliteDatabase(":memory:"));
+    const requestedShutdowns: string[] = [];
+    const server = new OttiliDaemonServer(store, {
+      instanceId: "daemon_under_test",
+      onShutdownRequest: (reason) => requestedShutdowns.push(reason),
+    });
+    servers.push(server);
+    const address = await server.start();
+    const client = new OttiliClient({ baseUrl: address.url });
+
+    // A descriptor written by a previous daemon must not stop its successor.
+    await expect(
+      client.shutdown("daemon_from_a_previous_boot"),
+    ).rejects.toThrow(/daemon_under_test/u);
+    expect(requestedShutdowns).toEqual([]);
+
+    await expect(
+      client.shutdown("daemon_under_test", "test stop"),
+    ).resolves.toEqual({ accepted: true, instanceId: "daemon_under_test" });
+    await vi.waitFor(() => expect(requestedShutdowns).toEqual(["test stop"]));
+  });
+
+  it("refuses protocol shutdown when the host did not enable it", async () => {
+    const store = new RunStore(new SqliteDatabase(":memory:"));
+    const server = new OttiliDaemonServer(store, { instanceId: "no_shutdown" });
+    servers.push(server);
+    const address = await server.start();
+    await expect(
+      new OttiliClient({ baseUrl: address.url }).shutdown("no_shutdown"),
+    ).rejects.toThrow(/does not accept protocol shutdown/u);
   });
 
   it("requires authentication when deliberately exposed beyond loopback", () => {

@@ -1,8 +1,12 @@
 # Next Actions
 
-The automated root matrix is green. Continue in this order; do not declare
+The local root matrix is green and the two reported cross-platform CI failures
+are fixed with regressions. Continue in this order; do not declare
 `TRUE_COMPLETE` while any item remains open.
 
+0. Push the cross-platform repair and require a green GitHub Actions matrix on
+   Ubuntu, macOS, and Windows (`KP-023`). Treat CI, not the local matrix, as
+   the authoritative platform evidence.
 1. Extend `KP-004` from synthetic heartbeat evidence to delayed real
    provider/tool plus competing-daemon takeover coverage; audit every
    executor-owned lifecycle write for fencing.

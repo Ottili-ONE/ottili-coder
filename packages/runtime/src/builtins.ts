@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 
+import { resolveCommandTarget } from "./command-target.js";
 import { ToolRegistry, type ToolDefinition, type ToolResult } from "./tools.js";
 
 export interface WorkspaceToolOptions {
@@ -229,11 +230,21 @@ async function execute(
   readonly stdout: string;
 }> {
   if (signal?.aborted) throw abortError(signal);
+  const target = await resolveCommandTarget(command, args, {
+    ...(process.env.PATH === undefined ? {} : { path: process.env.PATH }),
+    ...(process.env.PATHEXT === undefined
+      ? {}
+      : { pathExtensions: process.env.PATHEXT }),
+    workingDirectory: cwd,
+  });
   return await new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(target.executable, [...target.args], {
       cwd,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
+      ...(target.windowsVerbatimArguments === true
+        ? { windowsVerbatimArguments: true }
+        : {}),
     });
     let stdout = "";
     let stderr = "";

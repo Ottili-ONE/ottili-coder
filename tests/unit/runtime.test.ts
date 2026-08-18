@@ -6,6 +6,7 @@ import {
   ToolRegistry,
   createControlledTool,
   createWorkspaceTools,
+  resolveCommandTarget,
   retryDelayMs,
 } from "@ottili/runtime";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -182,5 +183,63 @@ describe("workspace tools", () => {
     await expect(
       tools.get("read_file")?.execute({ path: ".git/config" }),
     ).rejects.toThrow(".git");
+  });
+});
+
+describe("cross-platform command targets", () => {
+  const windowsPath = "C:\\tools;C:\\tools\\node";
+
+  it("executes directly and without a shell on POSIX hosts", async () => {
+    await expect(
+      resolveCommandTarget("npm", ["test"], { platform: "linux" }),
+    ).resolves.toEqual({ args: ["test"], executable: "npm" });
+  });
+
+  it("resolves a Windows command through PATHEXT before spawning", async () => {
+    await expect(
+      resolveCommandTarget("node", ["--version"], {
+        path: windowsPath,
+        pathExtensions: ".EXE;.CMD",
+        platform: "win32",
+        probe: async (candidate) => candidate === "C:\\tools\\node\\node.EXE",
+      }),
+    ).resolves.toEqual({
+      args: ["--version"],
+      executable: "C:\\tools\\node\\node.EXE",
+    });
+  });
+
+  // Node refuses to spawn .cmd/.bat without a shell, so a Windows `npm` has to
+  // be routed through cmd.exe explicitly rather than silently failing.
+  it("routes a Windows batch command through cmd.exe with quoted argv", async () => {
+    await expect(
+      resolveCommandTarget("npm", ["run", "test --workspace app"], {
+        comspec: "C:\\Windows\\system32\\cmd.exe",
+        path: windowsPath,
+        pathExtensions: ".EXE;.CMD",
+        platform: "win32",
+        probe: async (candidate) => candidate === "C:\\tools\\npm.CMD",
+      }),
+    ).resolves.toEqual({
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        '"C:\\tools\\npm.CMD run "test --workspace app""',
+      ],
+      executable: "C:\\Windows\\system32\\cmd.exe",
+      windowsVerbatimArguments: true,
+    });
+  });
+
+  it("refuses to hand cmd.exe an argument it would reinterpret", async () => {
+    await expect(
+      resolveCommandTarget("npm", ["run", "test & shutdown"], {
+        path: windowsPath,
+        pathExtensions: ".CMD",
+        platform: "win32",
+        probe: async (candidate) => candidate === "C:\\tools\\npm.CMD",
+      }),
+    ).rejects.toThrow(/cmd\.exe metacharacter/u);
   });
 });

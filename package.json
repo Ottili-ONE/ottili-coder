@@ -2,7 +2,7 @@
   "name": "ottili-coder-vnext",
   "version": "0.1.0",
   "private": true,
-  "description": "Ottili Coder — the open-source long-horizon coding agent.",
+  "description": "Ottili Coder \u2014 the open-source long-horizon coding agent.",
   "type": "module",
   "bin": {
     "ottili-coder": "./dist/apps/cli/src/main.js"
@@ -20,6 +20,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:eol": "node scripts/check-line-endings.mjs",
     "clean": "node scripts/clean.mjs",
     "dev": "tsx apps/cli/src/main.ts",
     "doctor": "tsx apps/cli/src/main.ts doctor",

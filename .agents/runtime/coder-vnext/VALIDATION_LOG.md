@@ -29,10 +29,21 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-17 | `PATH=/opt/node24/bin:$PATH pnpm test:package`                                                                                         | PASS — bundled CLI package smoke passed.                                                                                                                                        |
 | 2026-08-17 | Hardened target: runtime/control-plane/lifecycle/coordinator/daemon API tests plus typecheck                                           | PASS — 5 files, 28 tests; pause/cancel, claim race, provider drain, live SSE shutdown, approval gate, and sandbox denial covered.                                               |
 | 2026-08-17 | Final frozen matrix: install, lint, format, boundaries, typecheck, test, integration, recovery, e2e, build, package, bench, diff check | PASS — install frozen; test 69/69; integration 14/14; recovery 1/1; e2e 6/6; all remaining listed commands passed.                                                              |
+| 2026-08-18 | GitHub Actions matrix on `main` (external evidence)                                                                                    | FAIL — Linux passed; macOS failed `GitSnapshotError: Git created a worktree but it could not be listed afterward`; Windows failed `prettier --check` across the tree.           |
+| 2026-08-18 | Local reproduction of the macOS worktree failure through a symlinked temp root                                                         | PASS (reproduced) — Git reported the resolved `/tmp/ottili-real-*/repo-wt` while `path.resolve` produced the link path, so the created worktree was unfindable.                 |
+| 2026-08-18 | `git ls-files --eol` after adding `.gitattributes`, plus `git add --renormalize .`                                                     | PASS — 179/179 tracked text files are `i/lf w/lf`; renormalization produced no content change.                                                                                  |
+| 2026-08-18 | `node scripts/check-line-endings.mjs`                                                                                                  | PASS — 179 tracked text files, no CRLF.                                                                                                                                         |
+| 2026-08-18 | `pnpm exec vitest run tests/unit/workspace-recovery.test.ts`                                                                           | PASS — 9/9 including symlinked-workspace worktree create/find/lock/remove and non-existent-path canonicalization.                                                               |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/daemon-api.test.ts`                                                                            | PASS — 4/4 including protocol shutdown accepted for the running instance, refused for a stale instance id, and refused when the host disabled it.                               |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/cli-daemon-lifecycle.test.ts`                                                                  | PASS — 2/2; the bundled daemon exits from `POST /v1/daemon/shutdown` alone, with no signal involved.                                                                            |
+| 2026-08-18 | `pnpm exec vitest run tests/unit/runtime.test.ts`                                                                                      | PASS — 9/9 including Windows `PATHEXT` resolution, `cmd.exe` batch routing, and metacharacter refusal.                                                                          |
+| 2026-08-18 | Root matrix after cross-platform repair: lint, typecheck, test, integration, e2e, recovery, boundaries, eol, format                    | PASS — unit 75/75; integration 17/17; e2e 6/6; recovery 1/1; all remaining listed commands passed.                                                                              |
 
 ## Still-required direct validation
 
-The automated root matrix is green, but it is not the full mission audit. The
-final evidence still needs a delayed real provider/tool plus competing-daemon
-takeover and fresh documentation, dependency-license, provenance, and security
-audits on the final worktree.
+The local matrix is green and both reported CI failures now have named fixes
+with regressions, but the authoritative evidence is a green GitHub Actions
+matrix on Ubuntu, macOS, and Windows for the final source state. The final
+evidence still needs that matrix, a delayed real provider/tool plus
+competing-daemon takeover, and fresh documentation, dependency-license,
+provenance, and security audits on the final worktree.

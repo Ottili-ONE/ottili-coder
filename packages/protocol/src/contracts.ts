@@ -444,6 +444,7 @@ export interface DaemonError {
     | "permission_denied"
     | "budget_exceeded"
     | "lease_conflict"
+    | "unsupported"
     | "internal";
   readonly message: string;
   readonly details?: JsonObject;
@@ -475,6 +476,21 @@ export interface ReadyResponse {
 export interface VersionResponse {
   readonly protocolVersion: ProtocolVersion;
   readonly serverVersion: string;
+}
+
+/**
+ * Cooperative shutdown request. `instanceId` binds the request to one daemon
+ * lifetime so a stale client cannot stop a replacement daemon that reused the
+ * same endpoint or process id.
+ */
+export interface ShutdownDaemonRequest {
+  readonly instanceId: string;
+  readonly reason?: string;
+}
+
+export interface ShutdownDaemonResponse {
+  readonly accepted: true;
+  readonly instanceId: string;
 }
 
 export interface CreateRunRequest {

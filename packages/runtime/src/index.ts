@@ -1,5 +1,6 @@
 export * from "./coordinator.js";
 export * from "./builtins.js";
+export * from "./command-target.js";
 export * from "./engine.js";
 export * from "./openai.js";
 export * from "./provider.js";

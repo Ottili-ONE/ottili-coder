@@ -16,6 +16,7 @@ import type {
   RunCommandRequest,
   RunEvent,
   RunId,
+  ShutdownDaemonResponse,
   SteeringInputRequest,
   VersionResponse,
 } from "@ottili/protocol";
@@ -60,6 +61,20 @@ export class OttiliClient {
 
   public async version(): Promise<VersionResponse> {
     return await this.request<VersionResponse>("/v1/version");
+  }
+
+  /**
+   * Asks the daemon to stop cooperatively. `instanceId` must match the running
+   * daemon, so this cannot stop a replacement that reused the endpoint.
+   */
+  public async shutdown(
+    instanceId: string,
+    reason?: string,
+  ): Promise<ShutdownDaemonResponse> {
+    return await this.request<ShutdownDaemonResponse>("/v1/daemon/shutdown", {
+      body: { instanceId, ...(reason === undefined ? {} : { reason }) },
+      method: "POST",
+    });
   }
 
   public async createRun(
