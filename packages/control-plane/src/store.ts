@@ -2374,9 +2374,7 @@ export class RunStore {
   }
 
   /** Per-agent shares of the shared Run budget, for attribution and limits. */
-  public usageByAgent(
-    runId: RunId,
-  ): readonly {
+  public usageByAgent(runId: RunId): readonly {
     readonly agentId: AgentId | undefined;
     readonly usage: BudgetUsage;
   }[] {
