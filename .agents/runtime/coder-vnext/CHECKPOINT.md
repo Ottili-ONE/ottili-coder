@@ -61,9 +61,20 @@ performed with no findings, fixed by bumping `esbuild` and confirmed
 green on a real cross-platform matrix (run 32299228580, commit
 `85b6ead`). `KP-032`
 (an unexplained `LeaseFencedError` on a doc-only commit) has not
-recurred on any run since it was first observed. The Requirement Ledger
-still has open `UNPROVEN` entries with direct final
-audits remaining — a provenance/security audit pass is next.
+recurred on any run since it was first observed. Every scheduled
+`NEXT_ACTIONS.md` item is now closed: a genuinely full local matrix
+(fresh `pnpm install --frozen-lockfile` through `bench`) and a full
+cross-platform GitHub Actions matrix both passed together on commit
+`61cdf21` (run 32299496216, the current HEAD as of this evidence). The
+Requirement Ledger's remaining `UNPROVEN` entries (R48, R51's OAuth
+sub-gap, R53, R55, R64, R65) are each individually documented as
+deliberately open — blocked on a real external dependency (a live
+Ottili Auth service or live-model access this environment cannot reach),
+an explicitly unbounded target that can only be narrowed not finished,
+or a scoped architectural deferral with its own ADR — not neglected or
+avoided. `TRUE_COMPLETE` is still not permitted; see
+`NEXT_ACTIONS.md`'s "Deliberately open, not neglected" section for what
+would need to change before any of them could close.
 
 ## Current milestone
 
@@ -571,11 +582,15 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the security audit's one real finding (the `esbuild`
-version bump, `KP-038`), re-confirm cross-platform CI on the new HEAD.
-With R34/R45/R46/R47/R49/R51/R60/R61 all closed this session and only
-`KP-024`/`KP-032`/`KP-037` (each individually deliberate/monitored, not
-neglected) plus R48/R53/R55's intentionally-unbounded scope remaining,
-the next step is a genuinely full root-matrix-plus-cross-platform-CI
-re-confirmation on the final HEAD before reconsidering `TRUE_COMPLETE` —
-not a new feature increment.
+Every scheduled `NEXT_ACTIONS.md` item is closed and confirmed on a
+genuinely full local matrix plus a full cross-platform GitHub Actions
+matrix on the current HEAD (commit `61cdf21`, run 32299496216). Commit
+and push this checkpoint update itself, confirm its own CI stays green
+(the same discipline as every prior doc-only commit this session), then
+re-read `NEXT_ACTIONS.md`'s "Deliberately open, not neglected" section
+before starting any further work: R48/R51's OAuth gap/R53/R55/KP-024/
+KP-032/KP-037 each need either a genuine external input this environment
+does not have (live model access, an external Ottili Auth service) or a
+scoping decision already made and documented, not another autonomous
+increment. Do not declare `TRUE_COMPLETE` without checking the actual
+15 completion conditions explicitly against current evidence.
