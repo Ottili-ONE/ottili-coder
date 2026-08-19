@@ -48,9 +48,13 @@ source found and fixed 6 real discrepancies (README.md's missing
 operative restore mechanism instead of the actually-live
 `GitCheckpointRestorer`; `PROTOCOL.md` missing three routes and three SDK
 methods) — the other seven architecture docs were checked and found
-accurate. `KP-032` (an unexplained `LeaseFencedError` on a doc-only
-commit) has not recurred on any run since it was first observed. The
-Requirement Ledger still has open `UNPROVEN` entries with direct final
+accurate. `KP-033` (the `Checkpoint` protocol type mismatch) was
+reconciled alongside it. GitHub Actions run 32298325087 (commit
+`856978f`) confirmed Ubuntu/macOS/Windows/`action-smoke` all pass
+together on this change, including the `Checkpoint` type edit. `KP-032`
+(an unexplained `LeaseFencedError` on a doc-only commit) has not
+recurred on any run since it was first observed. The Requirement Ledger
+still has open `UNPROVEN` entries with direct final
 audits remaining — a provenance/security audit pass is next.
 
 ## Current milestone
