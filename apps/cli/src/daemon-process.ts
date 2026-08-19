@@ -96,6 +96,23 @@ function fallbackConfigsFromEnvironment(): readonly ProviderConfig[] {
     });
 }
 
+/**
+ * Supplies the managed Ottili access token from the environment, re-read on
+ * every call so a token rotated in the daemon's own process environment takes
+ * effect without a restart. Absent when the daemon is a purely local/BYOK
+ * installation, which is why this stays optional end to end.
+ */
+function ottiliAccessTokenSupplier(): (() => Promise<string>) | undefined {
+  if (process.env.OTTILI_ACCESS_TOKEN === undefined) return undefined;
+  return async () => {
+    const token = process.env.OTTILI_ACCESS_TOKEN;
+    if (token === undefined || token.length === 0) {
+      throw new Error("OTTILI_ACCESS_TOKEN is not set.");
+    }
+    return token;
+  };
+}
+
 function resolveProviderRuntime(): {
   readonly model: string;
   readonly provider: TurnProvider;
@@ -110,12 +127,16 @@ function resolveProviderRuntime(): {
       ),
     };
   }
+  const ottiliAccessToken = ottiliAccessTokenSupplier();
   try {
-    return createProviderRuntime({
-      fallbacks: fallbackConfigsFromEnvironment(),
-      model,
-      provider: providerConfig,
-    });
+    return createProviderRuntime(
+      {
+        fallbacks: fallbackConfigsFromEnvironment(),
+        model,
+        provider: providerConfig,
+      },
+      ottiliAccessToken === undefined ? {} : { ottiliAccessToken },
+    );
   } catch (error: unknown) {
     if (error instanceof ProviderConfigurationError) {
       return { model, provider: new UnconfiguredProvider(error.message) };

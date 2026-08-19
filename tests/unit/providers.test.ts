@@ -287,6 +287,30 @@ describe("configuration-driven provider selection", () => {
     expect(provider.id).toBe("anthropic");
   });
 
+  it("completes a real turn through the BYOK configuration path with no Ottili involvement", async () => {
+    let requestedUrl = "";
+    let authorization: string | null = null;
+    const provider = createTurnProvider(
+      { kind: "openai" },
+      {
+        environment: { OPENAI_API_KEY: "local-key" },
+        fetch: async (input, init) => {
+          requestedUrl = String(input);
+          authorization = new Headers(init?.headers).get("authorization");
+          return jsonResponse({
+            choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+            usage: { completion_tokens: 3, prompt_tokens: 9 },
+          });
+        },
+      },
+    );
+
+    const response = await provider.complete(baseRequest);
+    expect(requestedUrl).toContain("api.openai.com");
+    expect(authorization).toBe("Bearer local-key");
+    expect(response.text).toBe("Done.");
+  });
+
   it("names the missing credential instead of failing opaquely", () => {
     expect(() =>
       createTurnProvider({ kind: "openrouter" }, { environment: {} }),
@@ -303,6 +327,69 @@ describe("configuration-driven provider selection", () => {
         { environment: { OTTILI_ACCESS_TOKEN: "t" } },
       ),
     ).toThrow(/standalone installation/u);
+  });
+
+  it("completes an authenticated round trip through the managed Ottili service", async () => {
+    let authorization: string | null = null;
+    let requestedUrl = "";
+    const provider = createTurnProvider(
+      { kind: "ottili" },
+      {
+        environment: {},
+        fetch: async (input, init) => {
+          requestedUrl = String(input);
+          authorization = new Headers(init?.headers).get("authorization");
+          return jsonResponse({
+            choices: [{ message: { content: "Managed response." } }],
+          });
+        },
+        ottiliAccessToken: async () => "managed-token-1",
+      },
+    );
+
+    const response = await provider.complete(baseRequest);
+    expect(requestedUrl).toContain("ai.ottili.one");
+    expect(authorization).toBe("Bearer managed-token-1");
+    expect(response.text).toBe("Managed response.");
+  });
+
+  it("re-fetches the access token on every turn so a rotated token takes effect", async () => {
+    const tokens = ["token-a", "token-b"];
+    const seenAuthorizations: (string | null)[] = [];
+    const provider = createTurnProvider(
+      { kind: "ottili" },
+      {
+        environment: {},
+        fetch: async (_input, init) => {
+          seenAuthorizations.push(
+            new Headers(init?.headers).get("authorization"),
+          );
+          return jsonResponse({ choices: [{ message: { content: "ok" } }] });
+        },
+        ottiliAccessToken: async () => tokens.shift() ?? "exhausted",
+      },
+    );
+
+    await provider.complete(baseRequest);
+    await provider.complete(baseRequest);
+    expect(seenAuthorizations).toEqual(["Bearer token-a", "Bearer token-b"]);
+  });
+
+  it("converts a rejected access token supplier into a durable authentication failure", async () => {
+    const provider = createTurnProvider(
+      { kind: "ottili" },
+      {
+        environment: {},
+        ottiliAccessToken: async () => {
+          throw new Error("refresh token expired");
+        },
+      },
+    );
+
+    await expect(provider.complete(baseRequest)).rejects.toMatchObject({
+      kind: "authentication",
+      message: expect.stringContaining("refresh token expired"),
+    });
   });
 
   it("wraps configured fallbacks in per-turn failover", () => {

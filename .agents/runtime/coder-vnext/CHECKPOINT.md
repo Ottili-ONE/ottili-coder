@@ -11,24 +11,30 @@ ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
 green; MCP/LSP, worktree, and checkpoint composition (creation and
 workspace-only restore) are all closed with direct evidence (`KP-015`
 fully resolved), `KP-031` (sandbox `writableRoots` not widening to a
-delegate's worktree) is fixed (ADR-020), and R54/R56's specific stated
+delegate's worktree) is fixed (ADR-020), R54/R56's specific stated
 coverage gaps (SSE reconnect across a dropped/restarted daemon; explicit
-CLI `resume` lifecycle) are now closed with direct evidence — both moved
-UNPROVEN → PROVEN. GitHub Actions run 32266839233 (commit `680fe5c`)
-confirmed Ubuntu/macOS/Windows all pass together on the v2 API coverage
-change itself. `KP-032` (an unexplained `LeaseFencedError` on a doc-only
-commit) has not recurred on any of the four runs since it was first
-observed. The Requirement Ledger still has open `UNPROVEN` entries with
-direct final audits remaining.
+CLI `resume` lifecycle) are closed, and R45–R49 (managed-auth wiring,
+BYOK/managed provider round trips, dead-code deletion, remote/hybrid
+backend contracts) are now proven with direct evidence — all moved
+UNPROVEN → PROVEN except R48, which stays UNPROVEN by deliberate,
+documented decision (`KP-035`/ADR-022: composing `LocalExecutionBackend`
+into `execute_command`'s real dispatch path needs a dependency-graph
+change out of proportion to this increment). GitHub Actions run
+32266839233 (commit `680fe5c`) confirmed Ubuntu/macOS/Windows all pass
+together on the v2 API coverage change, but that predates the R45–R49
+change below — CI must be re-confirmed on the new HEAD. `KP-032` (an
+unexplained `LeaseFencedError` on a doc-only commit) has not recurred on
+any run since it was first observed. The Requirement Ledger still has
+open `UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
 M11: all previously-isolated capability primitives are composed into the
 live runtime (MCP/LSP/worktrees/checkpoints, including workspace-only
-restore), KP-031 is fixed, and R54/R56's specific coverage gaps are
-closed. Decompose `store.ts` further if warranted, then close
-backend/auth/legacy-parity, documentation, licensing, provenance, and
-security gaps.
+restore), KP-031 is fixed, R54/R56's specific coverage gaps are closed,
+and R45–R49 (provider/backend proof) are closed with R48 explicitly and
+honestly deferred. Decompose `store.ts` further if warranted, then close
+legacy-parity, documentation, licensing, provenance, and security gaps.
 
 ## Completed milestones
 
@@ -238,13 +244,34 @@ security gaps.
   specific gaps were.
 - Current automated root matrix passes again: unit (97), integration (46),
   e2e (7), recovery (5), plus all remaining listed commands.
+- Proved R45–R49 (ADR-022): retargeted R45/R47 off confirmed-dead
+  `packages/integrations/src/provider.ts` (deleted, `KP-034` resolved) onto
+  the real, live `provider-registry.ts` `"ottili"` mechanism, wired a real
+  `ottiliAccessToken` supplier into `apps/cli/src/daemon-process.ts` (read
+  fresh from `OTTILI_ACCESS_TOKEN` on every call, only when set — BYOK/local
+  installs unaffected), and added full round-trip/rotation/auth-failure
+  tests for both the managed and BYOK configuration-driven provider paths.
+  Added full lifecycle contract tests for `LocalExecutionBackend`,
+  `RemoteExecutionBackend`, and `HybridExecutionBackend` (local-preferred,
+  fallback-to-remote for `execute`/`health`) closing R49. R48 stays
+  deliberately UNPROVEN — composing `LocalExecutionBackend` into
+  `execute_command`'s real dispatch would regress Windows/output-safety
+  hardening it lacks, and porting that hardening in is blocked by the
+  `integrations`→`runtime` package-boundary rule; recorded as `KP-035`,
+  not worked around.
+- Current automated root matrix passes again after R45–R49: unit (106),
+  integration (46), e2e (7), recovery (5), plus all remaining listed
+  commands.
 
 ## Open milestones
 
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
-- Prove local backend, remote/hybrid, Ottili adapter/BYOK, and managed-auth
-  flows (R45–R49); audit legacy feature parity (R51).
+- Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
+  real dispatch path) as its own scoped increment, likely alongside
+  `KP-024`'s `store.ts` module-boundary cleanup, once a dependency-graph
+  decision is made.
+- Audit legacy feature parity (R51).
 - Close benchmarking, documentation, licensing, provenance, and security gaps
   (R34, R60, R61, `KP-010`).
 - Re-confirm a green Ubuntu/macOS/Windows GitHub Actions matrix on the current
@@ -252,36 +279,35 @@ security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. The v2 API coverage
-work (the top item in the prior `NEXT_ACTIONS.md`) is committed and
-locally validated. Resume with the ordered work in `NEXT_ACTIONS.md`,
-starting with pushing this change and re-confirming cross-platform CI on
-the new HEAD.
+No specific source edit is active in this checkpoint. R45–R49 (the top item
+in the prior `NEXT_ACTIONS.md`) is committed and locally validated. Resume
+with the ordered work in `NEXT_ACTIONS.md`, starting with pushing this
+change and re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 97/97, integration 46/46, e2e 7/7, recovery 5/5;
-lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass, all re-run after the v2 API coverage additions. The daemon-kill
+Current full matrix: unit 106/106, integration 46/46, e2e 7/7, recovery
+5/5; lint/format/check:eol/check:boundaries/typecheck/build/bench/package
+smoke pass, all re-run after the R45–R49 additions. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
 competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`),
 `tests/integration/mcp-lsp-composition.test.ts`,
-`tests/integration/worktree-composition.test.ts`, and
-`tests/integration/checkpoint-composition.test.ts` are unchanged and still
-pass; `tests/integration/checkpoint-restore.test.ts` (3 tests) is
-unchanged and still proves the restore route's refusal-while-not-paused,
-real-file-revert-with-undo, unknown-checkpoint, and
-no-restorer-configured cases. New this pass: `tests/integration/sse-reconnect.test.ts`
-(1 test, R54) and a new `resume`-lifecycle case in
-`tests/integration/cli-daemon-lifecycle.test.ts` (R56), plus
-`ready`/`version`/`checkpoints` coverage added to
-`tests/integration/daemon-api.test.ts`. The daemon-kill mission's first
-Windows CI run also caught a real cross-platform defect (KP-026) that no
-other platform or test could have
+`tests/integration/worktree-composition.test.ts`,
+`tests/integration/checkpoint-composition.test.ts`,
+`tests/integration/checkpoint-restore.test.ts`,
+`tests/integration/sse-reconnect.test.ts`, and
+`tests/integration/cli-daemon-lifecycle.test.ts` are unchanged and still
+pass. New this pass: `tests/unit/providers.test.ts` gained 4 tests (BYOK
+full round trip, managed-provider round trip, per-turn token rotation,
+rejected-supplier durable failure) and `tests/unit/integrations.test.ts`
+gained 5 tests (local backend full lifecycle + abort-via-signal, remote
+backend full delegation, hybrid local-preferred + fallback-to-remote). The
+daemon-kill mission's first Windows CI run also caught a real
+cross-platform defect (KP-026) that no other platform or test could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
-remediation provenance, not current failures. Cross-platform CI itself is not
-yet re-confirmed on this HEAD.
+remediation provenance, not current failures. Cross-platform CI itself is
+not yet re-confirmed on this HEAD.
 
 ## Current blockers
 
@@ -301,9 +327,14 @@ deterministic tests are viable.
 ## Latest important commands/results
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after proving
+  R45–R49 and deleting confirmed-dead `packages/integrations/src/provider.ts`
+  (unit 106/106, integration 46/46, e2e 7/7, recovery 5/5) — not yet
+  re-confirmed on GitHub Actions.
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after closing
   R54/R56's coverage gaps (unit 97/97, integration 46/46, e2e 7/7,
-  recovery 5/5) — not yet re-confirmed on GitHub Actions.
+  recovery 5/5).
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after adding
   checkpoint restore (unit 97/97, integration 44/44, e2e 7/7, recovery
@@ -357,8 +388,9 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the v2 API coverage change (R54/R56 closed, ready/version/
-checkpoints SDK coverage added), re-confirm the cross-platform CI matrix on
-the new HEAD, then work `NEXT_ACTIONS.md` in order starting with proving
-local backend/remote/hybrid/Ottili-adapter/BYOK/managed-auth flows
-(R45–R49). Rerun all final validation after the final source change.
+Commit and push the R45–R49 change (managed-auth token wiring, BYOK/managed
+provider round trips, dead-code deletion, remote/hybrid backend contracts),
+re-confirm the cross-platform CI matrix on the new HEAD, then work
+`NEXT_ACTIONS.md` in order starting with the legacy Ottili Coder feature
+matrix audit (R51). Rerun all final validation after the final source
+change.

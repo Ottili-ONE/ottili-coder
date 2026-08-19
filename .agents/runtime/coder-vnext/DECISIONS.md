@@ -438,3 +438,78 @@ create side was needed. `tests/integration/checkpoint-restore.test.ts`
 proves the refusal-while-not-paused case, the successful revert with a
 real resolvable pre-restore ref, refusal for an unknown checkpoint id, and
 the 501 when no restorer is configured.
+
+## ADR-022 — R45–R49 proven against the real provider/backend implementations, not the dead `packages/integrations/src/provider.ts` adapters
+
+Investigating R45 ("Ottili AI adapter exists") and R47 ("Ottili Auth
+integration exists for managed services") found that their named subject —
+`OttiliAiAdapter`/`ManagedAuthAdapter`/`OpenAiCompatibleAdapter`/
+`ProviderHttpError` in `packages/integrations/src/provider.ts` — has zero
+callers anywhere else in the tree (`KP-034`). It is an earlier iteration's
+implementation, structurally duplicating the real, live mechanism that
+`apps/cli/src/daemon-process.ts` actually uses:
+`packages/runtime/src/provider-registry.ts`'s `createTurnProvider`, whose
+`"ottili"` case builds a `ManagedTokenTurnProvider` wrapping
+`OpenAiCompatibleTurnProvider`. Writing a "focused contract test" for the
+dead adapter would satisfy the letter of R45 while proving nothing about
+what the daemon actually runs — exactly the fake-placeholder pattern this
+project rules out. R45/R47 were instead retargeted onto the real
+mechanism: `tests/unit/providers.test.ts` gained a mocked-fetch round trip
+proving the `Authorization: Bearer <token>` header reaches the request,
+per-turn re-fetch of the token (rotation without restarting the daemon,
+matching the doc comment on `ManagedTokenTurnProvider`), and a rejected
+supplier converting to a durable `authentication` `ProviderFailure` rather
+than an opaque throw.
+
+That token supplier was, until this change, never actually reachable from
+the CLI: `daemon-process.ts` called `createProviderRuntime` without an
+`ottiliAccessToken` option at all, so selecting `OTTILI_PROVIDER=ottili`
+always hit the "standalone installation" `ProviderConfigurationError`
+regardless of any credential present in the environment — the managed path
+existed only as an internal API nothing supplied. `daemon-process.ts` now
+reads `OTTILI_ACCESS_TOKEN` the same way every other provider kind reads
+its `apiKeyEnv` credential — synchronously, at startup, so a genuinely
+unconfigured managed install still fails fast into `UnconfiguredProvider`
+exactly as before — but wraps it in a supplier that re-reads
+`process.env.OTTILI_ACCESS_TOKEN` on every call rather than capturing it
+once, so a token mutated in the daemon's own process environment takes
+effect without a restart. BYOK/local kinds are entirely unaffected: the
+supplier is only ever constructed, and only ever passed, when
+`OTTILI_ACCESS_TOKEN` is present. R46 (BYOK) closed the same way from the
+other direction: the existing test only checked `provider.id` after
+construction, never that the configuration-driven path actually completes
+a turn; a new test drives `createTurnProvider({kind:"openai"}, {environment})`
+through a mocked fetch end to end with zero Ottili involvement.
+
+R48 ("Local execution backend works") and R49 ("Remote/Hybrid interfaces
+exist and are testable") name `packages/integrations/src/backend.ts`'s
+`ExecutionBackend` family, confirmed to have the same wiring gap as
+`provider.ts`: zero references anywhere in `packages/runtime/src` or
+`apps/cli/src`. Unlike `provider.ts`, this is not dead/duplicate code to
+retarget away from — `execute_command` (`packages/runtime/src/builtins.ts`)
+never had a competing implementation to fall back on; `ExecutionBackend`
+is simply an abstraction that was never composed into the live tool path.
+Composing it properly would mean `execute_command` constructing and
+delegating to a `LocalExecutionBackend`, but a side-by-side read of both
+implementations found `execute_command`'s own `execute()` helper is
+materially more hardened: it routes through `resolveCommandTarget`
+(`packages/runtime/src/command-target.ts`) for Windows batch/PATHEXT
+resolution, incrementally truncates output to `maxOutputBytes`, and fixes
+an abort-registration race — none of which `LocalExecutionBackend.execute`
+has. Swapping the call site to the weaker implementation would be a
+regression, not a composition, and porting the hardening across first is
+blocked by `scripts/check-boundaries.mjs`'s package rule: `integrations`
+may depend only on `@ottili/core`/`@ottili/protocol`, not `@ottili/runtime`,
+so `command-target.ts` cannot be imported where `backend.ts` lives without
+first relocating shared process-exec helpers to a lower package — a real
+dependency-graph decision, not a mechanical fix, and disproportionate to
+bolt onto this increment. R48 is therefore left UNPROVEN, honestly,
+tracked as `KP-035`, with its own full lifecycle contract tests added
+(start/health/execute/cancel/cleanup, abort-via-signal) so the abstraction
+itself is at least proven correct in isolation. R49's narrower, literal
+wording — deterministic remote/hybrid *contract tests* — does not depend
+on that composition question at all: new tests against a fake
+`RemoteExecutionTransport` and fake local/remote backends prove
+`RemoteExecutionBackend`'s full delegation and `HybridExecutionBackend`'s
+local-preferred/fallback-to-remote behavior for both `execute` and
+`health`, so R49 moves to PROVEN independently of R48.
