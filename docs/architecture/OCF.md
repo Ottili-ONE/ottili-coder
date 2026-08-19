@@ -59,12 +59,49 @@ event journal. Run events remain the authoritative state-transition record.
 ## Benchmarking
 
 The benchmark fixture lives at packages/context-format/bench/ocf-benchmark.ts.
-Use the root benchmark command when available:
+Run it directly (the root `pnpm bench` runs a different, whole-workspace
+benchmark and does not include this one):
 
 ```sh
-pnpm bench
+pnpm --filter @ottili/context-format run bench
 ```
 
-Record measurements, input corpus, profile, and comparison method in the
-durable validation log. Do not quote token savings without the exact measured
-fixture and result.
+It compares pretty JSON, minified JSON, a YAML subset, a CSV-like format, and
+all three OCF profiles against three record shapes mirroring real durable
+structures this project persists, not arbitrary synthetic ones: a task
+ledger (id/status/deps/title/evidence, at 20/100/500 records to show how the
+comparison scales), a requirement ledger (longer prose descriptions, closer
+to what a Requirement's `description` field actually looks like), and an
+event log (a nested `payload` object, closer to what a durable `RunEvent`
+actually carries). Record measurements, input corpus, profile, and
+comparison method in the durable validation log. Do not quote token savings
+without the exact measured fixture and result.
+
+## Token estimation
+
+Two different token counters exist for two different purposes, and neither
+is a stand-in for the other:
+
+- `estimateTokens` (`packages/context-format/src/value.ts`) is a fast,
+  dependency-free lexical heuristic — it is what `RepoMap` and
+  `ContextPlanner` call on every context compile, in the hot path that
+  enforces a Run's live token budget. Speed and a zero-install footprint
+  matter more there than provider-exact precision: a slow or heavy
+  tokenizer would slow down every turn of every Run.
+- The benchmark additionally counts real `cl100k_base` tokens via
+  `tiktoken` (MIT-licensed, a `packages/context-format`-only dev
+  dependency — never a runtime dependency of the shipped product) and
+  reports `estimatorErrorRatio` (lexical estimate ÷ real count) per format,
+  so the estimator's actual accuracy is documented with real comparison
+  data rather than asserted. `cl100k_base` is not exact for every provider
+  (Anthropic and Google use different, unpublished tokenizers), but it is a
+  real, widely-used BPE tokenizer and the only practical fixed point to
+  measure against without bundling a heavier, provider-specific dependency
+  into every install.
+
+The measured ratio is consistently **greater than 1** across every format in
+this fixture (the lexical estimator over-counts, typically by roughly
+15–95% depending on how punctuation-dense the format is) — the safer
+direction for a budget-enforcement estimator to be wrong in, since
+over-estimating trims content before a real provider limit is hit rather
+than after.

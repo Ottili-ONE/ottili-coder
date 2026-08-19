@@ -29,10 +29,16 @@ real runner after finding and fixing `KP-036` (a broken
 `cache-dependency-path` that the smoke test itself caught) — but stays
 UNPROVEN: interactive OAuth login is the one remaining genuine, documented,
 open gap. GitHub Actions run 32294770672 (commit `d44a583`) confirmed
-Ubuntu/macOS/Windows _and_ the new `action-smoke` job all pass together.
-`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit) has not
-recurred on any run since it was first observed. The Requirement Ledger
-still has open `UNPROVEN` entries with direct final audits remaining.
+Ubuntu/macOS/Windows _and_ the new `action-smoke` job all pass together
+(not yet re-confirmed on the OCF benchmark change below). R34 (OCF token
+benchmark) is now PROVEN: three representative dataset shapes plus a real
+`cl100k_base` tokenizer comparison close `KP-010`. Investigating OCF's
+live-composition status for R34 surfaced `KP-037`: `RunContextCompiler`
+never uses OCF's codec for its actual output, deliberately not composed
+in this pass without live-model validation (ADR-024). `KP-032` (an
+unexplained `LeaseFencedError` on a doc-only commit) has not recurred on
+any run since it was first observed. The Requirement Ledger still has
+open `UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
@@ -295,6 +301,32 @@ and security gaps.
   reports `waiting_external` rather than hanging or failing silently —
   proving the action's plumbing without spending a real provider key.
   Closes R51's last literal, bounded gap.
+- Expanded the OCF benchmark, closing R34/`KP-010` (ADR-024):
+  `packages/context-format/bench/ocf-benchmark.ts` now measures three
+  dataset shapes mirroring real protocol structures (a task ledger at
+  20/100/500 records, a requirement ledger, an event log with a nested
+  payload) instead of one synthetic shape, and reports a real
+  `cl100k_base` tokenizer count (`tiktoken`, MIT-licensed,
+  `packages/context-format`-only dev dependency) alongside the lexical
+  `estimateTokens` fallback for every measurement. Measured
+  `estimatorErrorRatio` 1.155–1.955 across all 35 comparisons — the
+  lexical estimator consistently over-, never under-, counts, the safer
+  direction for a budget-enforcement estimator to be wrong in.
+  `docs/architecture/OCF.md` documents the strategy and fixes a real bug
+  found in passing (it pointed at the wrong benchmark command). Also
+  found and recorded `KP-037`: `RunContextCompiler` does not use OCF's
+  codec for its actual output at all — deliberately not composed in this
+  pass, since this environment has no live model access to validate
+  whether a real provider parses OCF's compact/dense syntax as reliably
+  as JSON on the highest-consequence payload in the system.
+- Found and fixed a pre-existing (not introduced this session) markdown
+  table-fragmentation defect in `KNOWN_PROBLEMS.md`: two stray
+  blank-line/prose interruptions split what should be one continuous
+  37-row table into three fragments, which GFM renders as literal
+  pipe-separated text past the first fragment (no repeated header/divider
+  row). Relocated the interrupting prose note to after the table; `grep -c
+"^| KP-" ` confirms all 37 rows survived intact. `prettier --check` does
+  not catch this class of defect (it does not reformat table structure).
 
 ## Open milestones
 
@@ -304,6 +336,10 @@ and security gaps.
   real dispatch path) as its own scoped increment, likely alongside
   `KP-024`'s `store.ts` module-boundary cleanup, once a dependency-graph
   decision is made.
+- Resolve `KP-037` (compose OCF into `RunContextCompiler`'s live output) —
+  needs live-model validation this environment cannot perform, or a
+  conservative first step with an explicit before/after comparison; not a
+  blind swap.
 - Close benchmarking, documentation, licensing, provenance, and security gaps
   (R34, R60, R61, `KP-010`).
 - Re-confirm a green Ubuntu/macOS/Windows GitHub Actions matrix on the current
@@ -311,24 +347,22 @@ and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. `action.yml` and the
-`action-smoke` CI job (the last concrete piece of R51) are committed and
-locally validated (YAML-parsed, full local matrix green). Resume with the
-ordered work in `NEXT_ACTIONS.md`, starting with pushing this change and
-re-confirming cross-platform CI — including the new `action-smoke` job —
-on the new HEAD.
+No specific source edit is active in this checkpoint. The OCF benchmark
+expansion (R34) is committed and locally validated (full local matrix
+green; benchmark itself re-run twice with identical results). Resume with
+the ordered work in `NEXT_ACTIONS.md`, starting with pushing this change
+and re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
 Current full matrix: unit 111/111, integration 46/46, e2e 7/7, recovery
 5/5; lint/format/check:eol/check:boundaries/typecheck/build/bench/package
-smoke pass, all re-run after adding `action.yml`/`action-smoke` (no source
-package changed, so counts are unchanged from the `models`/`mcp` pass).
-`action.yml`/`.github/workflows/ci.yml` were validated by parsing with
-Python's `yaml.safe_load` (structurally correct) since `actionlint` is not
-available in this environment; the `action-smoke` CI job itself is the
-real, first end-to-end proof and has not run yet as of this local commit.
-The daemon-kill
+smoke pass, all re-run after the OCF benchmark expansion (no product source
+package changed, so counts are unchanged from the `action.yml` pass).
+`pnpm --filter @ottili/context-format run bench` itself was run twice with
+identical results (35 measurements, `estimatorErrorRatio` 1.155–1.955, 0
+below 1.0) — the actual reproducible evidence R34/`KP-010` needed, not
+just passing typecheck. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
 competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`),
@@ -367,6 +401,10 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after expanding
+  the OCF benchmark for R34/`KP-010` (unit 111/111, integration 46/46, e2e
+  7/7, recovery 5/5) — not yet re-confirmed on GitHub Actions.
 - GitHub Actions run 32294770672 (commit `d44a583`, 2026-08-19) confirmed
   Ubuntu, macOS, Windows, _and_ the new `action-smoke` job all pass
   together. The job log shows `action.yml` ran its full real sequence:
@@ -461,9 +499,11 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-`action.yml`/`action-smoke` are committed, pushed, and confirmed green on a
-real GitHub Actions runner (run 32294770672, all four jobs). R51 is closed
-except for the one documented, deliberately-open OAuth gap. Work
-`NEXT_ACTIONS.md` in order starting with expanding the OCF benchmark with
-representative datasets and a documented tokenizer strategy (R34,
-`KP-010`).
+Commit and push the OCF benchmark expansion (R34/`KP-010` closed, `KP-037`
+recorded, a pre-existing `KNOWN_PROBLEMS.md` table-fragmentation defect
+fixed in passing), re-confirm cross-platform CI on the new HEAD, then work
+`NEXT_ACTIONS.md` in order starting with fresh documentation-to-implementation
+(R61), dependency-license (R60), provenance, and security audits — R61
+should also reconcile `KP-033` (the `Checkpoint`/`CheckpointListResponse`
+protocol type mismatch) and check the `docs/architecture/*.md` links
+`README.md` references actually resolve.

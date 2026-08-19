@@ -555,3 +555,65 @@ deterministic BYOK-shaped HTTP provider rather than a live one: this
 environment has no real provider credential to spend, and the smoke test's
 job is to prove the wrapper is correct, not to reprove the underlying Run
 lifecycle the rest of the test suite already covers directly.
+
+## ADR-024 — The live budget-enforcement estimator stays lexical; a real tokenizer is a benchmark-only, dev-only dependency
+
+**Decision:** `estimateTokens` (`packages/context-format/src/value.ts`), a
+fast, dependency-free lexical heuristic, remains the only token counter in
+the live code path: `RepoMap` and `ContextPlanner` call it on every context
+compile, which happens on every turn of every Run. `tiktoken`
+(MIT-licensed) was added as a `devDependency` of `packages/context-format`
+only, used exclusively by `packages/context-format/bench/ocf-benchmark.ts`
+to compute real `cl100k_base` token counts alongside the lexical estimate
+and report `estimatorErrorRatio` (lexical ÷ real) per format and dataset —
+closing `KP-010`'s "lacks... tokenizer matrix" gap with real comparison
+data instead of a one-line disclaimer. It is never imported by
+`packages/context-format/src` and never becomes a runtime dependency of
+the shipped product.
+
+**Why:** Two different jobs need two different tools. The live path needs
+speed and a zero-install footprint above all — a Run's context is
+recompiled on every turn, so a slow or heavy tokenizer would slow down
+every single turn of every Run, and `cl100k_base` is not even exact for
+every provider this project supports (Anthropic and Google use different,
+unpublished tokenizers), so bundling one specific provider's tokenizer
+into the live path would trade real cost for a precision gain that is
+itself provider-dependent and partial. The benchmark's job is the
+opposite: it runs offline, by a developer, and its entire purpose is
+measuring how far the fast estimator's numbers are from a real tokenizer's
+— which requires a real tokenizer to compare against. Investigating
+whether `estimateTokens` was actually safe to keep found the answer
+directly, not by assumption: the benchmark's own measured
+`estimatorErrorRatio` is above `1.0` in all 35 comparisons across three
+representative dataset shapes (a task ledger at three record counts, a
+requirement ledger, an event log) and every text format compared (pretty
+JSON, minified JSON, a YAML subset, a CSV-like format, all three OCF
+profiles), ranging 1.155–1.955 — the lexical estimator consistently
+over-counts rather than under-counts, which is the safer direction for a
+budget-enforcement estimator to be wrong in: it trims content before a
+real provider limit is hit, not after.
+
+Expanding the benchmark's datasets from one synthetic shape to three real
+ones (`packages/protocol`'s actual Task/Requirement/RunEvent shapes, not
+arbitrary synthetic records) closes `KP-010`'s other stated gap ("lacks
+representative dataset") in the same increment, since both gaps needed the
+same rewritten benchmark script to close honestly.
+
+A separate, larger question this investigation surfaced but deliberately
+did not act on: `RunContextCompiler`
+(`packages/runtime/src/context.ts`) does not use OCF's codec at all for
+the structured state it composes each turn — it renders via plain JSON
+stringification (`stringifyForContext`), not `OCF.encode`. OCF the codec
+is real, tested, and now benchmarked against representative data, but it
+is not composed into the live context-compilation output path, unlike
+MCP/LSP/worktrees/checkpoints this session. Swapping it in was considered
+and declined for a concrete reason: correctness of the _encoding_ (proven
+by round-trip tests) does not establish correctness of _model
+comprehension_ of the encoded text, and this environment has no live
+model access to empirically validate whether a real provider parses OCF's
+compact/dense syntax as reliably as JSON on the highest-consequence
+payload in the system — the state that determines a long-horizon Run's
+understanding of its own mission every single turn. Getting this wrong
+would silently degrade mission outcomes across every future Run with no
+local way to detect it. Recorded as `KP-037` rather than attempted
+unvalidated.
