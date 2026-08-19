@@ -8,16 +8,15 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green; MCP/LSP, worktree, and checkpoint composition (creation and now
+green; MCP/LSP, worktree, and checkpoint composition (creation and
 workspace-only restore) are all closed with direct evidence (`KP-015`
 fully resolved), and `KP-031` (sandbox `writableRoots` not widening to a
-delegate's worktree) is fixed (ADR-020). GitHub Actions run 32263162700
-(commit `916a081`) confirmed Ubuntu/macOS/Windows all pass together, but
-that predates the checkpoint-restore change below, so CI must be
-re-confirmed on the new HEAD. `KP-032` (an unexplained `LeaseFencedError`
-on a doc-only commit) has not recurred on either of the two runs since it
-was first observed. The Requirement Ledger still has open `UNPROVEN`
-entries with direct final audits remaining.
+delegate's worktree) is fixed (ADR-020). GitHub Actions run 32265182592
+(commit `ded0e49`) confirmed Ubuntu/macOS/Windows all pass together on the
+checkpoint-restore change itself. `KP-032` (an unexplained
+`LeaseFencedError` on a doc-only commit) has not recurred on any of the
+three runs since it was first observed. The Requirement Ledger still has
+open `UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
@@ -329,8 +328,20 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the checkpoint-restore change, re-confirm the
-cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
-order starting with v2 protocol-entity API/SDK/restart roundtrip coverage
-(R53–R56), which can also fold in reconciling `KP-033`'s protocol/store
-type mismatch. Rerun all final validation after the final source change.
+Checkpoint restore is committed, pushed, and cross-platform CI is
+confirmed green (run 32265182592). Work `NEXT_ACTIONS.md` in order
+starting with v2 protocol-entity API/SDK/restart roundtrip coverage
+(R53–R56). A route/SDK-method coverage audit this session found concrete,
+addressable gaps rather than an open-ended target: `GET /v1/ready`,
+`GET /v1/version`, and `GET /v1/runs/:id/checkpoints` (the SDK's
+`client.checkpoints()`) have **zero** direct test coverage anywhere in the
+suite; `listRuns`/`agents`/`agentEvents`/`approvals` each have exactly one
+covering test. R54's stated gap is real and un-covered: no test drops an
+SSE connection, restarts the daemon against the same durable database, and
+proves a reconnecting client with `after`/`Last-Event-ID` catches up on
+events that happened while disconnected (the existing SSE test only proves
+a stream ends cleanly on shutdown, not cross-restart reconnect). R56's gap
+is real too: `ottili-coder resume <run-id>` (the top-level reattach
+command, distinct from `run resume` which un-pauses) has no CLI lifecycle
+acceptance test. Close these concretely rather than chasing exhaustive
+error-path coverage for every route, which is not a bounded target.
