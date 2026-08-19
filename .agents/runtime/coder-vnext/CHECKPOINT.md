@@ -57,7 +57,9 @@ real, low-severity, dev-only advisory (`esbuild`, `KP-038` — now zero
 vulnerabilities at every severity), and SQL-injection,
 credential-logging, file-permission, and command-injection (`shell:
 false` at every `spawn()` call site, verified directly) checks were
-performed with no findings. `KP-032`
+performed with no findings, fixed by bumping `esbuild` and confirmed
+green on a real cross-platform matrix (run 32299228580, commit
+`85b6ead`). `KP-032`
 (an unexplained `LeaseFencedError` on a doc-only commit) has not
 recurred on any run since it was first observed. The Requirement Ledger
 still has open `UNPROVEN` entries with direct final
