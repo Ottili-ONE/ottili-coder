@@ -28,6 +28,7 @@ import {
   type IndependentVerifier,
   type ProgressAttempt,
 } from "@ottili/validation";
+import { GitService } from "@ottili/workspace";
 
 import {
   RunContextCompiler,
@@ -51,6 +52,13 @@ import {
 
 export interface RunCoordinatorOptions {
   readonly completionGate?: CompletionGate;
+  /**
+   * Creates a durable checkpoint (a real Git snapshot ref plus a
+   * graph-state manifest) each time a `complete_task` call succeeds.
+   * Off by default; even when on, a workspace that is not a Git repository
+   * is skipped silently rather than treated as an error.
+   */
+  readonly checkpointOnTaskCompletion?: boolean;
   /**
    * Compiles each turn's context. The default reads the durable control plane
    * plus the checked-out workspace; supply a custom one to change budgets or
@@ -251,6 +259,23 @@ export class RunCoordinator implements RunActionExecutor {
       });
       this.settleActingAgent(acting, input.lease);
       this.reactToStagnation(run.id, input.lease, acting);
+
+      if (this.options.checkpointOnTaskCompletion === true) {
+        const completedTask = result.toolExecutions.find(
+          (execution) =>
+            execution.status === "succeeded" &&
+            execution.call.name === "complete_task",
+        );
+        if (completedTask !== undefined) {
+          await this.createMilestoneCheckpoint(
+            input.lease,
+            run,
+            workspaceUri,
+            acting,
+            completedTask.call,
+          );
+        }
+      }
 
       const requestedCompletion = result.toolExecutions.some(
         (execution) =>
@@ -865,6 +890,80 @@ export class RunCoordinator implements RunActionExecutor {
         type: "agent.progress",
       });
       return mission.workspaceUri;
+    }
+  }
+
+  /**
+   * Captures a durable checkpoint at a completed task: a real Git snapshot
+   * ref (the same private-ref primitive `CheckpointService` restores from)
+   * paired with a durable metadata row already served by the `checkpoints`
+   * list API/SDK/CLI. Best-effort: a workspace that is not a Git repository,
+   * or any other failure, is recorded as a durable event rather than
+   * blocking the Run — a checkpoint is a convenience, not a correctness
+   * requirement.
+   */
+  private async createMilestoneCheckpoint(
+    lease: RunLease,
+    run: Run,
+    workspaceUri: string,
+    acting: Agent,
+    completedTaskCall: { readonly input: Record<string, unknown> },
+  ): Promise<void> {
+    if (!workspaceUri.startsWith("file:")) return;
+    let workspacePath: string;
+    try {
+      workspacePath = fileURLToPath(workspaceUri);
+    } catch {
+      return;
+    }
+    const summary = completedTaskCall.input.summary;
+    const reason =
+      typeof summary === "string" && summary.trim().length > 0
+        ? summary
+        : "Task completed.";
+    try {
+      const git = new GitService(workspacePath);
+      if (!(await git.isRepository())) return;
+      const sequence = this.store.listCheckpoints(run.id).length + 1;
+      const snapshot = await git.captureCheckpoint({
+        message: reason,
+        runId: run.id,
+        sequence,
+      });
+      this.store.createCheckpoint({
+        label: "task_completed",
+        lease,
+        manifest: {
+          agents: this.store.listAgents(run.id).map((agent) => ({
+            id: agent.id,
+            role: agent.role,
+            status: agent.status,
+          })),
+          requirements: this.store.listRequirements(run.id).map((req) => ({
+            id: req.id,
+            status: req.status,
+            title: req.title,
+          })),
+          tasks: this.store.listTasks(run.id).map((task) => ({
+            id: task.id,
+            status: task.status,
+            title: task.title,
+          })),
+        },
+        reason,
+        runId: run.id,
+        workspaceRef: snapshot.ref,
+      });
+    } catch (error: unknown) {
+      this.store.appendFencedEvent({
+        lease,
+        payload: {
+          agentId: acting.id,
+          kind: "checkpoint_failed",
+          message: error instanceof Error ? error.message : String(error),
+        },
+        type: "agent.progress",
+      });
     }
   }
 

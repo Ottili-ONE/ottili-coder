@@ -162,6 +162,11 @@ async function main(): Promise<void> {
     process.env.OTTILI_DISABLE_AGENT_WORKTREES === "true"
       ? undefined
       : new GitWorktreeProvisioner();
+  // A checkpoint (a real Git snapshot ref plus a graph-state manifest) is
+  // captured every time a task completes; best-effort, so a workspace that
+  // is not a Git repository simply never accumulates any.
+  const checkpointOnTaskCompletion =
+    process.env.OTTILI_DISABLE_CHECKPOINTS !== "true";
 
   const daemon = new DurableDaemon({
     allowProtocolShutdown: true,
@@ -169,6 +174,7 @@ async function main(): Promise<void> {
       process.env.OTTILI_CODER_DATABASE ?? join(configDirectory, "coder.db"),
     executor: (store) =>
       new RunCoordinator(store, {
+        checkpointOnTaskCompletion,
         ...(lspManager === undefined
           ? {}
           : { context: { diagnostics: lspManager } }),

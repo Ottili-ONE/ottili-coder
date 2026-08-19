@@ -8,20 +8,21 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green, MCP/LSP and worktree composition are both closed with direct evidence,
-and GitHub Actions run 32260314723 (commit `0157a78`) confirmed
-Ubuntu/macOS/Windows all pass together on the worktree composition change —
-getting there cost three extra round-trips (KP-029/KP-030, unrelated to
-worktrees; then KP-031, a real canonicalization defect in the worktree test's
-own sandbox config, root-caused and fixed after one unnecessary speculative
-attempt). The Requirement Ledger still has open `UNPROVEN` entries with
-direct final audits remaining.
+green; MCP/LSP, worktree, and checkpoint composition are all closed with
+direct evidence (`KP-015` fully resolved), and GitHub Actions run
+32260314723 (commit `0157a78`) confirmed Ubuntu/macOS/Windows all pass
+together on the worktree composition change — but that run predates
+checkpoint composition below, so it must be re-confirmed on the new HEAD.
+The Requirement Ledger still has open `UNPROVEN` entries with direct final
+audits remaining.
 
 ## Current milestone
 
-M10: compose the remaining isolated service (checkpoints) into the live
-runtime, decompose `store.ts` further if warranted, then close provider/
-backend/auth, documentation, licensing, provenance, and security gaps.
+M11: all previously-isolated capability primitives are now composed into the
+live runtime (MCP/LSP/worktrees/checkpoints). Close KP-031, build checkpoint
+restore orchestration, decompose `store.ts` further if warranted, then close
+provider/backend/auth, documentation, licensing, provenance, and security
+gaps.
 
 ## Completed milestones
 
@@ -164,14 +165,31 @@ backend/auth, documentation, licensing, provenance, and security gaps.
   KP-031 (a pre-configured sandbox does not automatically widen to cover a
   dynamically-provisioned worktree path) as a real, undecided follow-up
   rather than working around it silently.
+- Composed checkpoints into the live runtime turn, closing KP-015 fully
+  (R18, ADR-019): `RunCoordinator.createMilestoneCheckpoint` (opt-in via
+  `checkpointOnTaskCompletion`, on by default in the daemon) captures a real
+  Git snapshot ref plus a durable graph-state manifest every time a
+  `complete_task` call succeeds, writing through the existing
+  `RunStore.createCheckpoint`/`checkpoints` list API/SDK/CLI surface that
+  previously had no callers at all (`ottili-coder checkpoints list` always
+  returned empty regardless of Run progress). Best-effort: a non-Git
+  workspace or any failure is a durable event, never a blocked Run.
+  `tests/integration/checkpoint-composition.test.ts` proves the captured ref
+  is a real, resolvable Git object, the manifest carries real task/agent/
+  requirement state, and the feature degrades gracefully when off or the
+  workspace isn't a Git repository. Restore orchestration (pause/apply/
+  resume) was deliberately left out of this increment — `CheckpointService`
+  itself already has full create/restore/rollback semantics
+  (`packages/recovery`, `tests/unit/workspace-recovery.test.ts`), but no
+  CLI/API surface calls it yet.
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (97), integration (38), e2e (7), recovery
+  check:boundaries, typecheck, unit (97), integration (41), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
 
-- Compose checkpoints into the live runtime turn with direct evidence
-  (KP-015, now narrowed to checkpoints only).
+- Build a `checkpoint restore` CLI/API/SDK flow atop the now-composed
+  `CheckpointService`, with direct restart evidence.
 - Decide and implement (or explicitly document) a fix for KP-031.
 - Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
   SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
@@ -185,24 +203,25 @@ backend/auth, documentation, licensing, provenance, and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. Worktree composition
+No specific source edit is active in this checkpoint. Checkpoint composition
 (the top item in the prior `NEXT_ACTIONS.md`) is committed and locally
 validated. Resume with the ordered work in `NEXT_ACTIONS.md`, starting with
 pushing this change and re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 97/97, integration 38/38, e2e 7/7, recovery 5/5;
+Current full matrix: unit 97/97, integration 41/41, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass, all re-run after the worktree composition change. The daemon-kill
+pass, all re-run after the checkpoint composition change. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the competing-daemon
 takeover suite (`tests/recovery/competing-daemon-takeover.test.ts`),
-`tests/integration/mcp-lsp-composition.test.ts`, and now
-`tests/integration/worktree-composition.test.ts` (isolation both directions,
-durable restart reuse with prior contents intact) are the highest-value
-regressions added this session. The daemon-kill mission's first Windows CI
-run also caught a real cross-platform defect (KP-026) that no other platform
-or test could have
+`tests/integration/mcp-lsp-composition.test.ts`,
+`tests/integration/worktree-composition.test.ts`, and now
+`tests/integration/checkpoint-composition.test.ts` (real resolvable Git ref,
+real manifest state, graceful degradation off/no-Git-repo) are the
+highest-value regressions added this session. The daemon-kill mission's
+first Windows CI run also caught a real cross-platform defect (KP-026) that
+no other platform or test could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
 remediation provenance, not current failures. Cross-platform CI itself is not
 yet re-confirmed on this HEAD.
@@ -224,6 +243,10 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after composing
+  checkpoints into the live runtime (unit 97/97, integration 41/41, e2e 7/7,
+  recovery 5/5) — not yet re-confirmed on GitHub Actions.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
   isolated worktrees for delegated agents into the live runtime (unit 97/97,
@@ -260,7 +283,7 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the worktree composition change, re-confirm the
+Commit and push the checkpoint composition change, re-confirm the
 cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
-order starting with composing checkpoints into the runtime turn, and rerun
-all final validation after the final source change.
+order starting with deciding a fix for `KP-031`, and rerun all final
+validation after the final source change.

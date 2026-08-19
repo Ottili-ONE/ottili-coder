@@ -323,3 +323,41 @@ in the primary workspace; the delegate's lands only in its worktree) and
 restart survival with a genuinely fresh `RunStore`/`RunCoordinator`/
 `GitWorktreeProvisioner` instance attached to the same durable journal — the
 reused worktree still contains the file the pre-restart turn wrote there.
+
+## ADR-019 — A checkpoint is captured by the coordinator at task completion, using the durable metadata shape the API already serves
+
+**Decision:** `RunCoordinator.createMilestoneCheckpoint` (opt-in via
+`checkpointOnTaskCompletion`, on by default in the daemon) triggers whenever
+a turn's `result.toolExecutions` contains a successful `complete_task` call
+— detected the same way `requestedCompletion` already is. It captures a
+real Git snapshot via `GitService.captureCheckpoint` (the same
+private-ref primitive `CheckpointService`/`packages/recovery` restores
+from) and writes it through `RunStore.createCheckpoint` — the lightweight
+`(label, reason, workspaceRef, manifest)` shape that the `checkpoints` list
+API/SDK/CLI already serve, but which had no callers before this, so `ottili-coder
+checkpoints list` always returned an empty list regardless of how much a Run
+had actually done. The manifest carries real durable state (agent
+roles/statuses, requirement statuses, task statuses/titles), not a
+placeholder. Best-effort throughout: a non-Git workspace, or any other
+failure, is recorded as a durable `agent.progress` event and never blocks
+the Run — a checkpoint is a convenience for later inspection/restore, not a
+correctness requirement the way a lease or a resource lock is.
+
+**Why:** `packages/recovery`'s `CheckpointService`/`CheckpointRecord<TState>`
+already had full create/restore/rollback semantics, transactionally tested
+in `tests/unit/workspace-recovery.test.ts` — that half of "compose
+checkpoints" was never the gap. The gap was that nothing in the live
+runtime ever called `RunStore.createCheckpoint` at all, despite the API,
+SDK, and CLI surface for listing checkpoints already existing and being
+exercised end-to-end elsewhere. Reusing that existing metadata shape (label/
+reason/workspaceRef/manifest) rather than also wiring `CheckpointService`'s
+richer, differently-shaped `CheckpointRecord<TState>` into the coordinator
+keeps this increment honest about what it closes: creation at a durable
+milestone, visible through the surface that already exists. A full
+`checkpoint restore` CLI/API flow — which needs to pause the Run, apply the
+Git snapshot, restore durable state consistently, and resume — is
+deliberately out of scope here and left as an explicit follow-up, the same
+way `KP-031` was left open rather than silently worked around. Triggering on
+`complete_task` specifically (not, say, every N turns) ties a checkpoint to
+a concrete, evidence-backed unit of progress a later restore would actually
+want to return to, rather than an arbitrary time- or turn-based interval.
