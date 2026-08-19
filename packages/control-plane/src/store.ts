@@ -1983,6 +1983,45 @@ export class RunStore {
     });
   }
 
+  /**
+   * Records the isolated worktree an executor provisioned for a delegate
+   * Agent's turns, so a restart reuses it instead of provisioning a second
+   * one. Settable once: an Agent that already has a worktree keeps it for
+   * its whole lifetime, the same as its role or its parent.
+   */
+  public setAgentWorktree(input: {
+    readonly agentId: AgentId;
+    readonly lease: FencedLease;
+    readonly worktreeUri: string;
+  }): Agent {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      this.assertLeaseInternal(input.lease, now);
+      const agent = this.mustAgent(input.agentId);
+      if (agent.runId !== input.lease.runId) {
+        throw new Error("Agent does not belong to the leased Run.");
+      }
+      if (agent.worktreeUri !== undefined) {
+        throw new Error(`Agent '${input.agentId}' already has a worktree.`);
+      }
+      this.database.run(
+        "UPDATE agents SET worktree_uri = ?, lease_generation = ?, updated_at = ? WHERE id = ?",
+        input.worktreeUri,
+        input.lease.generation,
+        now,
+        input.agentId,
+      );
+      this.appendEventInternal(
+        input.lease.runId,
+        "agent.worktree_assigned",
+        { agentId: input.agentId, worktreeUri: input.worktreeUri },
+        now,
+        input.lease.generation,
+      );
+      return this.mustAgent(input.agentId);
+    });
+  }
+
   public startSessionEpoch(input: {
     readonly agentId: AgentId;
     readonly lease?: Pick<RunLease, "generation" | "executorId" | "runId">;

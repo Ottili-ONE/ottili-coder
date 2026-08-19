@@ -79,20 +79,24 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | Fixed KP-030 (a second short-lease-TTL flake, same class as KP-025) and ran `pnpm exec vitest run tests/recovery/competing-daemon-takeover.test.ts` three consecutive times | PASS — 4/4 every run, ~0.87s test time each. |
 | 2026-08-19 | Full root matrix after the KP-030 fix: lint, typecheck, format:check, test:recovery | PASS — recovery 5/5; lint/typecheck/format:check clean. |
 | 2026-08-19 | **GitHub Actions matrix on `main`, commit `afa6ce0` (run 32256548228)** | **PASS — Ubuntu, macOS, and Windows all green together**, confirming MCP/LSP composition (R39/R40) plus the KP-029/KP-030 fixes on a real cross-platform matrix, not just local Linux. |
+| 2026-08-19 | `pnpm exec vitest run tests/integration/worktree-composition.test.ts` (worktree composition for delegated agents) after wiring `GitWorktreeProvisioner`/`RunCoordinator.ensureAgentWorktree`/`RunStore.setAgentWorktree` (R37, ADR-018) | PASS — 2/2, including a genuine restart with a fresh Store/Coordinator/Provisioner instance reusing the same worktree and its prior contents. First attempt failed with a lease-fencing false negative from using two different `executorId`s across the "restart," not a product defect — fixed by using one executor identity throughout, matching ADR-010's reused-identity restart scenario. Confirmed stable across 3 consecutive local runs. |
+| 2026-08-19 | Full root matrix after worktree composition: lint, typecheck, format:check, check:eol, check:boundaries, test, test:integration, test:recovery, test:e2e, build, test:package | PASS — unit 97/97; integration 38/38; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
 ## Still-required direct validation
 
-The local matrix is green (now including MCP/LSP composition evidence), the
-delayed real provider/tool competing-daemon takeover is proven directly, and
-GitHub Actions run 32231877726 (commit `9a5f310`) confirmed Ubuntu, macOS, and
-Windows all pass together — but that run predates the MCP/LSP composition
-change, so cross-platform CI must be re-confirmed on the new HEAD before it
-counts as platform evidence for this feature. Four real cross-platform
-defects (KP-025 through KP-028) were found and fixed getting to that prior
-green run, each one only reachable through a real Windows CI run — KP-028 in
+The local matrix is green (now including MCP/LSP and worktree composition
+evidence), the delayed real provider/tool competing-daemon takeover is proven
+directly, and GitHub Actions run 32256548228 (commit `afa6ce0`) confirmed
+Ubuntu, macOS, and Windows all pass together — but that run predates the
+worktree composition change, so cross-platform CI must be re-confirmed on the
+new HEAD before it counts as platform evidence for this feature. Four real
+cross-platform defects (KP-025 through KP-028) were found and fixed getting to
+an earlier green run, each one only reachable through a real Windows CI run —
+KP-028 in
 particular (a Windows drive-letter path misread as an LSP `rootUri` URI
 scheme) was fixed proactively before LSP had any live code path, and that fix
 is now load-bearing. The final evidence still needs: a fresh green
-cross-platform CI run on this HEAD, checkpoint/worktree composition evidence,
-and fresh documentation, dependency-license, provenance, and security audits
-on the final worktree.
+cross-platform CI run on this HEAD, checkpoint composition evidence (worktree
+composition is now closed, KP-015 narrowed accordingly), and fresh
+documentation, dependency-license, provenance, and security audits on the
+final worktree.

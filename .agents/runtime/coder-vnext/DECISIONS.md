@@ -274,3 +274,52 @@ separately-scoped case with an explicit network-enabled sandbox proving the
 approval-then-execute path. `LspServerManager`'s tools stay unapproved by
 design: `sideEffectClass: "none"`/`"read"` never carries `requiresApproval`,
 matching every other read-only tool in the runtime.
+
+## ADR-018 — A delegated Agent's worktree is provisioned by the coordinator, durable-once, and a sibling of the primary workspace
+
+**Decision:** `RunCoordinator` gains an optional `worktrees: WorktreeProvisioner`
+port. Before resolving tools or compiling context for a turn, `ensureAgentWorktree`
+returns the Mission's own `workspaceUri` unchanged for the coordinator Agent
+and for any delegate that opts out of the feature (`worktrees` unset), but for
+a delegate (any non-coordinator role) with no `worktreeUri` yet, it calls
+`provision()`, records the result durably via the new lease-fenced
+`RunStore.setAgentWorktree` (settable once — an Agent that already has one
+keeps it for its whole lifetime), and returns that URI instead. Every
+downstream use of "the workspace" for that turn — tool resolution,
+`createDurableTools`'s resource-scope namespacing, and the context
+compiler's Git status/diff/RepoMap/diagnostics — receives this _effective_
+URI, not the Mission's raw one. The concrete adapter, `GitWorktreeProvisioner`
+(`packages/runtime/src/worktrees.ts`), places each worktree at
+`<parent-of-primary>/.ottili-worktrees/<runId>/<agentId>`, detached at HEAD
+(never a new branch), and is itself idempotent by path: if a prior attempt
+created the worktree on disk but crashed before the durable write committed,
+the retry finds and reuses it via `WorktreeManager.find` instead of failing
+on Git's refusal to recreate a non-empty path. The daemon wires
+`GitWorktreeProvisioner` in unconditionally (opt-out via
+`OTTILI_DISABLE_AGENT_WORKTREES=true`), since provisioning is best-effort —
+a failure (e.g. the workspace is not a Git repository) is recorded as a
+durable `agent.progress` event and falls back to the shared workspace rather
+than blocking the delegate's turn.
+
+**Why:** Delegates previously always shared the coordinator's single
+workspace, so two agents editing concurrently — the exact shape long-horizon
+multi-agent delegation produces — could race each other's file writes with no
+isolation at all. Placing worktrees as a _sibling_ of the primary workspace
+(rather than nested inside it) avoids every edge case of a Git worktree
+appearing inside its own primary's tracked tree (accidental `git add -A`
+capture, `.gitignore` coupling); the cost is that a sandbox's `writableRoots`
+configured only with the primary workspace does not automatically cover it,
+which is why `tests/integration/worktree-composition.test.ts` grants a
+shared parent directory explicitly and why this gap is recorded as `KP-031`
+rather than silently worked around in the product. Provisioning happens in
+the coordinator, not as a mission tool, because it is infrastructure the
+Run's own trust boundary already covers (the operator granted the _Mission's_
+workspace at Run-creation time; a delegate's worktree is that grant's own
+implementation detail, not a new capability), matching how the coordinator
+already establishes leases and session epochs outside the model-facing
+tool/policy pipeline. `tests/integration/worktree-composition.test.ts`
+proves both directions of the isolation (the coordinator's own write lands
+in the primary workspace; the delegate's lands only in its worktree) and
+restart survival with a genuinely fresh `RunStore`/`RunCoordinator`/
+`GitWorktreeProvisioner` instance attached to the same durable journal — the
+reused worktree still contains the file the pre-restart turn wrote there.

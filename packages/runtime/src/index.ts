@@ -14,3 +14,4 @@ export * from "./provider-http.js";
 export * from "./provider-registry.js";
 export * from "./provider.js";
 export * from "./tools.js";
+export * from "./worktrees.js";

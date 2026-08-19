@@ -15,6 +15,7 @@ import {
 } from "@ottili/integrations";
 import { DurableDaemon } from "@ottili/server";
 import {
+  GitWorktreeProvisioner,
   LspServerManager,
   ProviderConfigurationError,
   ProviderFailure,
@@ -153,6 +154,14 @@ async function main(): Promise<void> {
   const lspServers = lspServersFromEnvironment();
   const lspManager =
     lspServers.length === 0 ? undefined : new LspServerManager(lspServers);
+  // A delegated Agent gets its own isolated Git worktree so its edits/
+  // commands never race the coordinator's own workspace; provisioning is
+  // best-effort and falls back to the shared workspace on failure (e.g. the
+  // workspace is not a Git repository), so this stays safe to leave enabled.
+  const worktrees =
+    process.env.OTTILI_DISABLE_AGENT_WORKTREES === "true"
+      ? undefined
+      : new GitWorktreeProvisioner();
 
   const daemon = new DurableDaemon({
     allowProtocolShutdown: true,
@@ -165,6 +174,7 @@ async function main(): Promise<void> {
           : { context: { diagnostics: lspManager } }),
         model,
         provider,
+        ...(worktrees === undefined ? {} : { worktrees }),
         tools: async ({ workspaceUri }) => {
           const workspace = workspacePath(workspaceUri, fallbackWorkspace);
           const registries = [

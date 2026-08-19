@@ -344,6 +344,7 @@ export type RunEventType =
   | "task.status_changed"
   | "agent.status_changed"
   | "agent.turn_started"
+  | "agent.worktree_assigned"
   | "agent.message"
   | "agent.progress"
   | "agent.failed"

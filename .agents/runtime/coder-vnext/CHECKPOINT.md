@@ -8,16 +8,16 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green, MCP/LSP composition is closed with direct evidence, and GitHub Actions
-run 32256548228 (commit `afa6ce0`) confirmed Ubuntu/macOS/Windows all pass
-together — but that run also cost two extra round-trips (KP-029, a test-only
-Windows `file://` URI defect; KP-030, a second short-lease-TTL CI flake on
-Ubuntu, same class as KP-025), and the Requirement Ledger still has open
-`UNPROVEN` entries with direct final audits remaining.
+green, MCP/LSP and worktree composition are both closed with direct evidence,
+and GitHub Actions run 32256548228 (commit `afa6ce0`) confirmed
+Ubuntu/macOS/Windows all pass together — but that run predates the worktree
+composition change below, so it must be re-confirmed on the new HEAD, and the
+Requirement Ledger still has open `UNPROVEN` entries with direct final audits
+remaining.
 
 ## Current milestone
 
-M10: compose remaining isolated services (checkpoints/worktrees) into the live
+M10: compose the remaining isolated service (checkpoints) into the live
 runtime, decompose `store.ts` further if warranted, then close provider/
 backend/auth, documentation, licensing, provenance, and security gaps.
 
@@ -141,14 +141,36 @@ backend/auth, documentation, licensing, provenance, and security gaps.
   then executes and locks under the tool's declared resource scope, and a
   read-only LSP tool executes unapproved with its diagnostics feeding the
   _next_ turn's compiled context (ADR-017).
+- Fixed KP-029 (a test-only, not product, Windows `file://` URI defect in the
+  new MCP/LSP composition tests — raw string concatenation instead of
+  `pathToFileURL`) and KP-030 (a second short-lease-TTL CI flake on Ubuntu,
+  same class as KP-025, in `competing-daemon-takeover.test.ts`) surfaced by
+  GitHub Actions after the MCP/LSP composition commit; confirmed a fresh
+  green Ubuntu/macOS/Windows matrix (run 32256548228) afterward.
+- Composed isolated Git worktrees for delegated agents into the live runtime
+  turn (R37, ADR-018, narrowing KP-015 to checkpoints only): `RunCoordinator`
+  gains an optional `worktrees` port; `ensureAgentWorktree` provisions one
+  lazily on a delegate's first turn via `GitWorktreeProvisioner`
+  (`packages/runtime/src/worktrees.ts`, a sibling of the primary workspace,
+  detached at HEAD), records it durably and settable-once through the new
+  lease-fenced `RunStore.setAgentWorktree`, and scopes that turn's tools and
+  compiled context to it — the coordinator itself always keeps the shared
+  workspace. `tests/integration/worktree-composition.test.ts` proves both
+  directions of the isolation, durable restart reuse of the same worktree and
+  its prior contents using a genuinely fresh Store/Coordinator/Provisioner
+  instance, and that provisioning is opt-in/best-effort. Found and recorded
+  KP-031 (a pre-configured sandbox does not automatically widen to cover a
+  dynamically-provisioned worktree path) as a real, undecided follow-up
+  rather than working around it silently.
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (97), integration (36), e2e (7), recovery
+  check:boundaries, typecheck, unit (97), integration (38), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
 
-- Compose checkpoints/worktrees into the live runtime turn with direct
-  evidence (KP-015, now narrowed to checkpoints/worktrees only).
+- Compose checkpoints into the live runtime turn with direct evidence
+  (KP-015, now narrowed to checkpoints only).
+- Decide and implement (or explicitly document) a fix for KP-031.
 - Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
   SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
   coverage (R53–R56).
@@ -161,23 +183,24 @@ backend/auth, documentation, licensing, provenance, and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. MCP/LSP composition
+No specific source edit is active in this checkpoint. Worktree composition
 (the top item in the prior `NEXT_ACTIONS.md`) is committed and locally
 validated. Resume with the ordered work in `NEXT_ACTIONS.md`, starting with
 pushing this change and re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 97/97, integration 36/36, e2e 7/7, recovery 5/5;
+Current full matrix: unit 97/97, integration 38/38, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass, all re-run after the MCP/LSP composition change. The daemon-kill
+pass, all re-run after the worktree composition change. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the competing-daemon
-takeover suite (`tests/recovery/competing-daemon-takeover.test.ts`), and now
-`tests/integration/mcp-lsp-composition.test.ts` (default-sandbox denial,
-approval-gated execution once network is granted, and read-only LSP tool plus
-next-turn diagnostics context) are the highest-value regressions added this
-session. The daemon-kill mission's first Windows CI run also caught a real
-cross-platform defect (KP-026) that no other platform or test could have
+takeover suite (`tests/recovery/competing-daemon-takeover.test.ts`),
+`tests/integration/mcp-lsp-composition.test.ts`, and now
+`tests/integration/worktree-composition.test.ts` (isolation both directions,
+durable restart reuse with prior contents intact) are the highest-value
+regressions added this session. The daemon-kill mission's first Windows CI
+run also caught a real cross-platform defect (KP-026) that no other platform
+or test could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
 remediation provenance, not current failures. Cross-platform CI itself is not
 yet re-confirmed on this HEAD.
@@ -201,8 +224,15 @@ deterministic tests are viable.
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
-  MCP/LSP into the live runtime (unit 97/97, integration 36/36, e2e 7/7,
-  recovery 5/5) — not yet re-confirmed on GitHub Actions.
+  isolated worktrees for delegated agents into the live runtime (unit 97/97,
+  integration 38/38, e2e 7/7, recovery 5/5) — not yet re-confirmed on GitHub
+  Actions.
+- GitHub Actions run 32256548228 (commit `afa6ce0`, 2026-08-19) passed
+  Ubuntu, macOS, and Windows together after fixing KP-029 (a Windows
+  `file://` URI defect in the new MCP/LSP composition tests, not the
+  product) and KP-030 (a second short-lease-TTL CI flake on Ubuntu, same
+  class as KP-025) — this run predates the worktree composition change above
+  and must be re-confirmed on the new HEAD.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after the
   composition/hardening milestone, the KP-024/025/026 fixes, and the partial
@@ -222,7 +252,7 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the MCP/LSP composition change, re-confirm the cross-platform
-CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in order starting with
-composing checkpoints/worktrees into the runtime turn, and rerun all final
-validation after the final source change.
+Commit and push the worktree composition change, re-confirm the
+cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
+order starting with composing checkpoints into the runtime turn, and rerun
+all final validation after the final source change.

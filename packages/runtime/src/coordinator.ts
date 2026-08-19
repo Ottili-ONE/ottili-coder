@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { RunActionExecutor, ScheduledAction } from "@ottili/control-plane";
 import type { RunStore } from "@ottili/control-plane";
@@ -13,6 +14,7 @@ import type {
   ApprovalId,
   JsonObject,
   JsonValue,
+  Mission,
   ResourceScope,
   Run,
   RunId,
@@ -63,12 +65,28 @@ export interface RunCoordinatorOptions {
   readonly model: string;
   readonly provider: TurnProvider;
   readonly tools: ToolRegistry | WorkspaceToolResolver;
+  /**
+   * Provisions an isolated Git worktree for each delegated (non-coordinator)
+   * Agent's turns, so a delegate's edits/commands never race the
+   * coordinator's own workspace. Opt-in: without it every Agent shares the
+   * Mission's single workspace, as before.
+   */
+  readonly worktrees?: WorktreeProvisioner;
 }
 
 export type WorkspaceToolResolver = (input: {
   readonly runId: string;
   readonly workspaceUri: string;
 }) => ToolRegistry | Promise<ToolRegistry>;
+
+export interface WorktreeProvisioner {
+  /** Returns the absolute filesystem path of a ready, isolated worktree. */
+  provision(input: {
+    readonly agentId: string;
+    readonly runId: string;
+    readonly workspacePath: string;
+  }): Promise<string>;
+}
 
 /**
  * Bridges a stateless model/tool turn with the lease-fenced durable Run. The
@@ -117,6 +135,11 @@ export class RunCoordinator implements RunActionExecutor {
     // before scheduling anything new against the same graph.
     this.store.recoverGraphWork(input.lease);
     const acting = this.selectActingAgent(run, coordinator, input.lease);
+    const workspaceUri = await this.ensureAgentWorktree(
+      acting,
+      mission,
+      input.lease,
+    );
     const inbox = this.store.receiveAgentMessages({
       agentId: acting.id,
       lease: input.lease,
@@ -135,7 +158,7 @@ export class RunCoordinator implements RunActionExecutor {
       type: "agent.turn_started",
     });
 
-    const sourceTools = await this.resolveTools(mission.workspaceUri, run.id);
+    const sourceTools = await this.resolveTools(workspaceUri, run.id);
     const durableTools = this.createDurableTools(
       input.lease,
       acting,
@@ -148,7 +171,7 @@ export class RunCoordinator implements RunActionExecutor {
           store: this.store,
         }),
       ]),
-      mission.workspaceUri,
+      workspaceUri,
     );
     const engine = new AgentTurnEngine(this.options.provider, durableTools);
     try {
@@ -156,7 +179,10 @@ export class RunCoordinator implements RunActionExecutor {
         activeTask,
         agent: acting,
         inbox,
-        mission,
+        mission:
+          workspaceUri === mission.workspaceUri
+            ? mission
+            : { ...mission, workspaceUri },
         run,
         signal: input.signal,
       });
@@ -792,6 +818,54 @@ export class RunCoordinator implements RunActionExecutor {
     return this.options.tools instanceof ToolRegistry
       ? this.options.tools
       : await this.options.tools({ runId, workspaceUri });
+  }
+
+  /**
+   * Resolves the workspace URI a turn should actually run against. The
+   * coordinator always keeps the Mission's shared workspace; a delegate gets
+   * its own isolated worktree, provisioned once and reused for the rest of
+   * its lifetime (including across a restart, since the assignment is
+   * durable). Provisioning is best-effort: a failure falls back to the
+   * shared workspace rather than blocking the delegate's turn.
+   */
+  private async ensureAgentWorktree(
+    agent: Agent,
+    mission: Mission,
+    lease: RunLease,
+  ): Promise<string> {
+    if (this.options.worktrees === undefined) return mission.workspaceUri;
+    if (agent.role === "coordinator") return mission.workspaceUri;
+    if (agent.worktreeUri !== undefined) return agent.worktreeUri;
+    if (!mission.workspaceUri.startsWith("file:")) return mission.workspaceUri;
+
+    let workspacePath: string;
+    try {
+      workspacePath = fileURLToPath(mission.workspaceUri);
+    } catch {
+      return mission.workspaceUri;
+    }
+
+    try {
+      const worktreePath = await this.options.worktrees.provision({
+        agentId: agent.id,
+        runId: lease.runId,
+        workspacePath,
+      });
+      const worktreeUri = pathToFileURL(worktreePath).href;
+      this.store.setAgentWorktree({ agentId: agent.id, lease, worktreeUri });
+      return worktreeUri;
+    } catch (error: unknown) {
+      this.store.appendFencedEvent({
+        lease,
+        payload: {
+          agentId: agent.id,
+          kind: "worktree_provisioning_failed",
+          message: error instanceof Error ? error.message : String(error),
+        },
+        type: "agent.progress",
+      });
+      return mission.workspaceUri;
+    }
   }
 
   private handleFailure(
