@@ -8,9 +8,10 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green and the composition/hardening milestone below is closed, but the
-Requirement Ledger still has open `UNPROVEN` entries and direct final audits
-remain.
+green, the composition/hardening milestone below is closed, and GitHub
+Actions has confirmed Ubuntu/macOS/Windows all pass together on commit
+`9a5f310` — but the Requirement Ledger still has open `UNPROVEN` entries and
+direct final audits remain.
 
 ## Current milestone
 
@@ -177,9 +178,16 @@ deterministic tests are viable.
   build, benchmark, and package smoke passed on 2026-08-19 after the
   composition/hardening milestone, the KP-024/025/026 fixes, and the partial
   `store.ts` decomposition.
-- GitHub Actions run 32132026366 (commit `3f51516`) passed Ubuntu, macOS, and
-  Windows; two later runs failed on real defects now fixed (KP-025, KP-026).
-  Re-verification on CI for the current HEAD is still required (`KP-023`).
+- GitHub Actions run 32231877726 (commit `9a5f310`, 2026-08-19) passed
+  Ubuntu, macOS, and Windows together — the first confirmed full
+  cross-platform pass since the composition/hardening milestone began.
+  Getting there from run 32132026366 (commit `3f51516`) took five more CI
+  round-trips, each surfacing one real, previously-undetected defect
+  (KP-025 lease TTL/Windows `EBUSY`, KP-026 a Windows drive-letter path
+  misread as a URL scheme, KP-027 a transient SQLite `IOERR` right after a
+  killed process released its file handle, KP-028 the same drive-letter
+  defect in LSP config validation). `KP-023` is resolved but must be
+  re-confirmed on every subsequent substantive change.
 - A historic 10 ms TTL duplicate execution and public completion bypass were
   reproduced before remediation; details remain in `VALIDATION_LOG.md`.
 
