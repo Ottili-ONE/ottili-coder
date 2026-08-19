@@ -350,6 +350,15 @@ export class RunStore {
       });
   }
 
+  public getCheckpoint(
+    runId: RunId,
+    checkpointId: CheckpointId,
+  ): CheckpointRecord | undefined {
+    return this.listCheckpoints(runId).find(
+      (checkpoint) => checkpoint.id === checkpointId,
+    );
+  }
+
   public listValidations(runId: RunId): readonly ValidationRecord[] {
     return this.database
       .all(
@@ -2549,6 +2558,41 @@ export class RunStore {
         now,
       );
       return { id, sequence };
+    });
+  }
+
+  /**
+   * Records that a checkpoint's workspace snapshot was applied. This is an
+   * operator action, not an executor one — it takes no lease, the same as
+   * `resolveApproval` — but it still asserts the Run is `paused`, so nothing
+   * mutates a workspace a coordinator turn is (or is about to be) actively
+   * writing. The actual Git restore happens outside the Store, before this
+   * is called; this durably records that it happened.
+   */
+  public recordCheckpointRestore(input: {
+    readonly checkpointId: CheckpointId;
+    readonly preRestoreRef: string;
+    readonly restoredRef: string;
+    readonly runId: RunId;
+  }): RunEvent {
+    const now = this.timestamp();
+    return this.database.transaction(() => {
+      const run = this.mustRun(input.runId);
+      if (run.status !== "paused") {
+        throw new Error(
+          `Run '${input.runId}' must be paused to restore a checkpoint (current status: '${run.status}').`,
+        );
+      }
+      return this.appendEventInternal(
+        input.runId,
+        "checkpoint.restored",
+        {
+          checkpointId: input.checkpointId,
+          preRestoreRef: input.preRestoreRef,
+          restoredRef: input.restoredRef,
+        },
+        now,
+      );
     });
   }
 

@@ -8,23 +8,24 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green; MCP/LSP, worktree, and checkpoint composition are all closed with
-direct evidence (`KP-015` fully resolved), and `KP-031` (sandbox
-`writableRoots` not widening to a delegate's worktree) is fixed (ADR-020).
-GitHub Actions run 32263162700 (commit `916a081`) confirmed
-Ubuntu/macOS/Windows all pass together on the KP-031 fix itself — the
-intervening doc-only commit (`9a43323`) that failed once on Ubuntu with an
-unexplained `LeaseFencedError` (`KP-032`, open/monitoring) has not
-recurred on either of the two subsequent runs. The Requirement Ledger
-still has open `UNPROVEN` entries with direct final audits remaining.
+green; MCP/LSP, worktree, and checkpoint composition (creation and now
+workspace-only restore) are all closed with direct evidence (`KP-015`
+fully resolved), and `KP-031` (sandbox `writableRoots` not widening to a
+delegate's worktree) is fixed (ADR-020). GitHub Actions run 32263162700
+(commit `916a081`) confirmed Ubuntu/macOS/Windows all pass together, but
+that predates the checkpoint-restore change below, so CI must be
+re-confirmed on the new HEAD. `KP-032` (an unexplained `LeaseFencedError`
+on a doc-only commit) has not recurred on either of the two runs since it
+was first observed. The Requirement Ledger still has open `UNPROVEN`
+entries with direct final audits remaining.
 
 ## Current milestone
 
-M11: all previously-isolated capability primitives are now composed into the
-live runtime (MCP/LSP/worktrees/checkpoints), and KP-031 is fixed. Build
-checkpoint restore orchestration, decompose `store.ts` further if warranted,
-then close provider/backend/auth, documentation, licensing, provenance, and
-security gaps.
+M11: all previously-isolated capability primitives are composed into the
+live runtime (MCP/LSP/worktrees/checkpoints, including workspace-only
+restore), and KP-031 is fixed. Decompose `store.ts` further if warranted,
+then close v2 API/backend/auth/legacy-parity, documentation, licensing,
+provenance, and security gaps.
 
 ## Completed milestones
 
@@ -197,11 +198,28 @@ security gaps.
 - Current automated root matrix passes: lint, format, check:eol,
   check:boundaries, typecheck, unit (97), integration (41), e2e (7), recovery
   (5), build, benchmark, and package smoke.
+- Built a workspace-only `checkpoint restore` CLI/API/SDK flow (R18, ADR-021):
+  `POST /v1/runs/:id/checkpoints/:checkpointId/restore` refuses (400) unless
+  the Run is `paused`, refuses (404) an unknown checkpoint, refuses (501)
+  when the daemon has no restorer configured, and otherwise applies the
+  checkpoint's Git snapshot via `GitCheckpointRestorer`
+  (`packages/runtime/src/checkpoint-restore.ts`) — always capturing an
+  undoable pre-restore snapshot first — reachable through
+  `client.restoreCheckpoint` and `ottili-coder checkpoints restore`.
+  Deliberately scoped to files only, not a full point-in-time
+  reconstruction of the durable Task/Agent Graph (that would need event
+  replay and is a materially larger feature). Found and recorded KP-033 (a
+  pre-existing, unrelated mismatch between the protocol's `Checkpoint` type
+  and `CheckpointRecord`'s actual shape) while cross-checking the route
+  against the existing GET endpoint. `tests/integration/checkpoint-restore.test.ts`
+  proves refusal-while-not-paused, a real file revert with a resolvable
+  pre-restore ref, refusal for an unknown checkpoint, and the 501 case.
+- Current automated root matrix passes again after checkpoint restore:
+  unit (97), integration (44), e2e (7), recovery (5), plus all remaining
+  listed commands.
 
 ## Open milestones
 
-- Build a `checkpoint restore` CLI/API/SDK flow atop the now-composed
-  `CheckpointService`, with direct restart evidence.
 - Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
   SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
   coverage (R53–R56).
@@ -214,24 +232,27 @@ security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. The KP-031 fix (the
-top item in the prior `NEXT_ACTIONS.md`) is committed and locally validated.
-Resume with the ordered work in `NEXT_ACTIONS.md`, starting with pushing
-this change and re-confirming cross-platform CI on the new HEAD.
+No specific source edit is active in this checkpoint. The checkpoint-restore
+feature (the top item in the prior `NEXT_ACTIONS.md`) is committed and
+locally validated. Resume with the ordered work in `NEXT_ACTIONS.md`,
+starting with pushing this change and re-confirming cross-platform CI on
+the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 97/97, integration 41/41, e2e 7/7, recovery 5/5;
+Current full matrix: unit 97/97, integration 44/44, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass, all re-run after the KP-031 fix. The daemon-kill acceptance test
-(`tests/e2e/daemon-kill-mission.test.ts`), the competing-daemon takeover
-suite (`tests/recovery/competing-daemon-takeover.test.ts`),
-`tests/integration/mcp-lsp-composition.test.ts`, and
+pass, all re-run after adding checkpoint restore. The daemon-kill
+acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
+competing-daemon takeover suite
+(`tests/recovery/competing-daemon-takeover.test.ts`),
+`tests/integration/mcp-lsp-composition.test.ts`,
+`tests/integration/worktree-composition.test.ts`, and
 `tests/integration/checkpoint-composition.test.ts` are unchanged and still
-pass; `tests/integration/worktree-composition.test.ts` was deliberately
-narrowed to a CLI-default-shaped sandbox grant (no more `parent`-directory
-workaround) and still passes, which is itself the regression proving
-`sandboxForTurn` works. The daemon-kill mission's first Windows CI run also
+pass; `tests/integration/checkpoint-restore.test.ts` (new, 3 tests) proves
+the restore route's refusal-while-not-paused, real-file-revert-with-undo,
+unknown-checkpoint, and no-restorer-configured cases directly over the
+daemon HTTP API. The daemon-kill mission's first Windows CI run also
 caught a real cross-platform defect (KP-026) that no other platform or test
 could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
@@ -256,9 +277,12 @@ deterministic tests are viable.
 ## Latest important commands/results
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after adding
+  checkpoint restore (unit 97/97, integration 44/44, e2e 7/7, recovery
+  5/5) — not yet re-confirmed on GitHub Actions.
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after fixing
-  KP-031 (unit 97/97, integration 41/41, e2e 7/7, recovery 5/5) — not yet
-  re-confirmed on GitHub Actions.
+  KP-031 (unit 97/97, integration 41/41, e2e 7/7, recovery 5/5).
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
   checkpoints into the live runtime (unit 97/97, integration 41/41, e2e 7/7,
@@ -305,15 +329,8 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-The KP-031 fix is committed, pushed, and cross-platform CI is confirmed
-green (run 32263162700). Work `NEXT_ACTIONS.md` in order starting with
-building a `checkpoint restore` CLI/API/SDK flow: `GitService.readCheckpointSnapshot`
-already reconstructs a full `GitCheckpointSnapshot` from just a ref string
-(the `restoreWorkspaceSnapshot` it feeds already accepts a bare ref), so the
-durable `workspace_ref` this session's checkpoint composition already
-stores is sufficient — no prerequisite fix to the create side is needed.
-Scope the first increment to a workspace-only restore (revert files to the
-checkpoint's snapshot; leave the Task/Agent Graph and durable history
-untouched) using the existing `run pause`/`run resume` primitives to
-safely sequence around the coordinator, rather than attempting full
-event-replay state reconstruction in the same pass.
+Commit and push the checkpoint-restore change, re-confirm the
+cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
+order starting with v2 protocol-entity API/SDK/restart roundtrip coverage
+(R53–R56), which can also fold in reconciling `KP-033`'s protocol/store
+type mismatch. Rerun all final validation after the final source change.

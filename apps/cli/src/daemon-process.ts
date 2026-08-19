@@ -15,6 +15,7 @@ import {
 } from "@ottili/integrations";
 import { DurableDaemon } from "@ottili/server";
 import {
+  GitCheckpointRestorer,
   GitWorktreeProvisioner,
   LspServerManager,
   ProviderConfigurationError,
@@ -200,6 +201,7 @@ async function main(): Promise<void> {
       }),
     scheduler: { pollIntervalMs: 500 },
     server: {
+      checkpointRestorer: new GitCheckpointRestorer(),
       host: url.hostname,
       port: Number(url.port || (url.protocol === "https:" ? 443 : 80)),
       ...(process.env.OTTILI_CODER_DAEMON_TOKEN === undefined

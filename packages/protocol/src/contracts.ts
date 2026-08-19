@@ -359,6 +359,7 @@ export type RunEventType =
   | "tool.call_started"
   | "tool.call_finished"
   | "checkpoint.created"
+  | "checkpoint.restored"
   | "approval.requested"
   | "approval.resolved"
   | "recovery.required"
@@ -551,6 +552,14 @@ export interface AgentEventListResponse {
 
 export interface CheckpointListResponse {
   readonly checkpoints: readonly Checkpoint[];
+}
+
+export interface RestoreCheckpointResponse {
+  readonly checkpointId: CheckpointId;
+  readonly restoredRef: string;
+  /** A private ref captured just before restoring, so the restore itself is undoable. */
+  readonly preRestoreRef: string;
+  readonly restoredAt: IsoTimestamp;
 }
 
 export interface ApprovalListResponse {

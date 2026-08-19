@@ -16,6 +16,7 @@ import {
   PROTOCOL_VERSION,
   type AgentEventListResponse,
   type ApiResult,
+  type CheckpointId,
   type CreateRunRequest,
   type DaemonError,
   type HealthResponse,
@@ -24,6 +25,7 @@ import {
   type ReadyResponse,
   type ResolveApprovalRequest,
   type ResolveApprovalResponse,
+  type RestoreCheckpointResponse,
   type RunCommandRequest,
   type RunId,
   type ShutdownDaemonResponse,
@@ -31,6 +33,21 @@ import {
   type SteeringInputRequest,
   type VersionResponse,
 } from "@ottili/protocol";
+
+/**
+ * Restores a checkpoint's Git snapshot into a workspace. The server package
+ * cannot depend on `@ottili/workspace` directly (boundary rule), so the
+ * daemon composition root injects the concrete, `GitService`-backed
+ * implementation the same way it injects MCP/LSP/worktree capabilities.
+ */
+export interface CheckpointRestorer {
+  restore(input: {
+    readonly checkpointId: CheckpointId;
+    readonly runId: RunId;
+    readonly workspaceRef: string;
+    readonly workspaceUri: string;
+  }): Promise<{ readonly preRestoreRef: string; readonly restoredRef: string }>;
+}
 
 export interface DaemonServerOptions {
   /** Local-only is safe by default. A non-loopback bind requires a token. */
@@ -48,6 +65,8 @@ export interface DaemonServerOptions {
    * the handler. A protocol request stops the daemon the same way everywhere.
    */
   readonly onShutdownRequest?: (reason: string) => void;
+  /** Omitted means checkpoint restore is unavailable (501). */
+  readonly checkpointRestorer?: CheckpointRestorer;
 }
 
 export interface DaemonAddress {
@@ -67,6 +86,7 @@ export class OttiliDaemonServer {
   private readonly onRunCommand:
     ((runId: RunId, command: DurableRunCommand) => void) | undefined;
   private readonly onShutdownRequest: ((reason: string) => void) | undefined;
+  private readonly checkpointRestorer: CheckpointRestorer | undefined;
   private server: Server | undefined;
   private readonly eventStreams = new Set<ServerResponse>();
 
@@ -81,6 +101,7 @@ export class OttiliDaemonServer {
     this.token = options.token;
     this.onRunCommand = options.onRunCommand;
     this.onShutdownRequest = options.onShutdownRequest;
+    this.checkpointRestorer = options.checkpointRestorer;
     if (!isLoopbackHost(this.host) && this.token === undefined) {
       throw new Error(
         "A daemon bound beyond loopback requires an authentication token.",
@@ -361,6 +382,77 @@ export class OttiliDaemonServer {
         this.respond(response, 200, {
           checkpoints: this.store.listCheckpoints(run.id),
         });
+        return;
+      }
+      if (
+        method === "POST" &&
+        route.tail.length === 3 &&
+        route.tail[0] === "checkpoints" &&
+        route.tail[2] === "restore"
+      ) {
+        const checkpointId = route.tail[1] as CheckpointId;
+        const checkpoint = this.store.getCheckpoint(run.id, checkpointId);
+        if (checkpoint === undefined) {
+          this.respondError(response, 404, {
+            code: "not_found",
+            message: `Checkpoint '${checkpointId}' was not found in Run '${run.id}'.`,
+            retryable: false,
+          });
+          return;
+        }
+        if (checkpoint.workspaceRef === undefined) {
+          this.respondError(response, 400, {
+            code: "invalid_request",
+            message: `Checkpoint '${checkpointId}' has no workspace snapshot to restore.`,
+            retryable: false,
+          });
+          return;
+        }
+        // Cheap check before the real filesystem/Git mutation; the Store
+        // asserts it again when recording the restore, as defense in depth.
+        if (run.status !== "paused") {
+          this.respondError(response, 400, {
+            code: "invalid_request",
+            message: `Run '${run.id}' must be paused to restore a checkpoint (current status: '${run.status}').`,
+            retryable: false,
+          });
+          return;
+        }
+        if (this.checkpointRestorer === undefined) {
+          this.respondError(response, 501, {
+            code: "unsupported",
+            message: "This daemon does not support checkpoint restore.",
+            retryable: false,
+          });
+          return;
+        }
+        const mission = this.store.getMission(run.missionId);
+        if (mission === undefined) {
+          this.respondError(response, 500, {
+            code: "internal",
+            message: `Run '${run.id}' has no Mission.`,
+            retryable: false,
+          });
+          return;
+        }
+        const restored = await this.checkpointRestorer.restore({
+          checkpointId,
+          runId: run.id,
+          workspaceRef: checkpoint.workspaceRef,
+          workspaceUri: mission.workspaceUri,
+        });
+        const event = this.store.recordCheckpointRestore({
+          checkpointId,
+          preRestoreRef: restored.preRestoreRef,
+          restoredRef: restored.restoredRef,
+          runId: run.id,
+        });
+        this.respond(response, 200, {
+          checkpointId,
+          preRestoreRef: restored.preRestoreRef,
+          restoredAt: event.createdAt,
+          restoredRef: restored.restoredRef,
+        } satisfies RestoreCheckpointResponse);
         return;
       }
       if (method === "GET" && equalPath(route.tail, ["approvals"])) {

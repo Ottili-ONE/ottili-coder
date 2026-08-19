@@ -167,6 +167,7 @@ Usage:
   ottili-coder daemon <start|status|stop|restart> [--url <url>] [--json]
   ottili-coder agents list <run-id> [--json]
   ottili-coder checkpoints list <run-id> [--json]
+  ottili-coder checkpoints restore <run-id> <checkpoint-id> [--json]
   ottili-coder approvals list <run-id> [--json]
   ottili-coder approvals resolve <run-id> <approval-id> <approved|rejected> [--resolver <id>] [--json]
   ottili-coder config <preview|import> [--home <path>] [--project <path>] [--overwrite] [--json]
@@ -470,28 +471,52 @@ async function executeCheckpoints(
   tokens: readonly string[],
   context: CliExecutionContext,
 ): Promise<void> {
-  if (tokens[0] !== "list")
+  const action = tokens[0];
+  if (action !== "list" && action !== "restore") {
     throw new CliUsageError(
-      "checkpoints supports only 'checkpoints list <run-id>'.",
+      "checkpoints supports 'checkpoints list <run-id>' or 'checkpoints restore <run-id> <checkpoint-id>'.",
     );
+  }
   const options = parseOptions(tokens.slice(1), {
     boolean: commonOutputOptionNames,
     values: connectionOptionNames,
   });
-  const runId = requiredRunId(options, "checkpoints list");
+  if (action === "list") {
+    const runId = requiredRunId(options, "checkpoints list");
+    const value = await (
+      await daemonConnection(options, context)
+    ).client.checkpoints(runId);
+    if (hasFlag(options, "json")) {
+      writeJson(context.stdout, value);
+      return;
+    }
+    if (value.checkpoints.length === 0) {
+      writeLine(context.stdout, "No checkpoints recorded for this run.");
+      return;
+    }
+    for (const checkpoint of value.checkpoints)
+      writeLine(context.stdout, formatCheckpoint(checkpoint));
+    return;
+  }
+
+  const [runId, checkpointId, ...extra] = options.positionals;
+  if (runId === undefined || checkpointId === undefined || extra.length > 0) {
+    throw new CliUsageError(
+      "checkpoints restore requires a run id and a checkpoint id. The run must already be paused (`run pause <run-id>`).",
+    );
+  }
   const value = await (
     await daemonConnection(options, context)
-  ).client.checkpoints(runId);
+  ).client.restoreCheckpoint(runId as RunId, checkpointId);
   if (hasFlag(options, "json")) {
     writeJson(context.stdout, value);
     return;
   }
-  if (value.checkpoints.length === 0) {
-    writeLine(context.stdout, "No checkpoints recorded for this run.");
-    return;
-  }
-  for (const checkpoint of value.checkpoints)
-    writeLine(context.stdout, formatCheckpoint(checkpoint));
+  writeLine(
+    context.stdout,
+    `Restored checkpoint ${value.checkpointId} (workspace ref ${value.restoredRef}). ` +
+      `Pre-restore backup: ${value.preRestoreRef}.`,
+  );
 }
 
 async function executeApprovals(

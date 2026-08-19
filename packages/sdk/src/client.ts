@@ -12,6 +12,7 @@ import type {
   ReadyResponse,
   ResolveApprovalRequest,
   ResolveApprovalResponse,
+  RestoreCheckpointResponse,
   Run,
   RunCommandRequest,
   RunEvent,
@@ -155,6 +156,17 @@ export class OttiliClient {
   public async checkpoints(runId: RunId): Promise<CheckpointListResponse> {
     return await this.request<CheckpointListResponse>(
       `/v1/runs/${encodeURIComponent(runId)}/checkpoints`,
+    );
+  }
+
+  /** The Run must already be `paused`; the daemon refuses otherwise. */
+  public async restoreCheckpoint(
+    runId: RunId,
+    checkpointId: string,
+  ): Promise<RestoreCheckpointResponse> {
+    return await this.request<RestoreCheckpointResponse>(
+      `/v1/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+      { method: "POST" },
     );
   }
 

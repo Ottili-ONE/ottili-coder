@@ -393,3 +393,48 @@ itself decided to provision.
 to grant only the primary workspace (the previous `parent`-directory
 workaround removed) and still passes, proving the fix — not a broader
 pre-configured grant — is what makes the delegate's write succeed.
+
+## ADR-021 — Checkpoint restore is workspace-only, gated on a paused Run, and reached through an injected port
+
+**Decision:** `POST /v1/runs/:id/checkpoints/:checkpointId/restore`
+(`packages/server/src/server.ts`) restores a checkpoint's Git snapshot into
+the Run's primary workspace. It refuses (400) unless `run.status ===
+"paused"`, refuses (404) an unknown checkpoint or one with no
+`workspaceRef`, and refuses (501) if the daemon was not given a
+`CheckpointRestorer`. The actual Git work — `GitCheckpointRestorer`
+(`packages/runtime/src/checkpoint-restore.ts`) — always captures an
+undoable pre-restore snapshot first, then calls the same
+`GitService.restoreWorkspaceSnapshot` primitive `CheckpointService` uses
+internally, and is injected into `OttiliDaemonServer` by the daemon
+composition root exactly the way MCP/LSP/worktree capabilities already are:
+`server` cannot depend on `@ottili/workspace` (a boundary rule), and
+`runtime` has no reason to depend on `server` (an outer layer), so
+`GitCheckpointRestorer` matches the `CheckpointRestorer` port structurally
+rather than importing it. `RunStore.recordCheckpointRestore` durably
+records the outcome as an operator action — no lease, the same as
+`resolveApproval` — re-asserting the paused precondition as defense in
+depth alongside the route's own check. `RunStore.getCheckpoint(runId, id)`
+was added as a small, honest single-row accessor rather than filtering
+`listCheckpoints` at every call site.
+
+**Why:** Restore is deliberately scoped to the workspace only — reverting
+files to the checkpoint's snapshot — not a full point-in-time
+reconstruction of the durable Task/Agent Graph and history, which would
+need to replay the entire event log and is a materially larger feature than
+what this closes; `RunCoordinator.createMilestoneCheckpoint`'s manifest was
+already scoped as a summary, not a state dump sufficient for that anyway.
+Gating on `paused` (an existing Run status, reachable through the existing
+`run pause` command) rather than inventing a new scheduled-action type or
+lease-based coordination keeps the increment bounded: it reuses a primitive
+that already exists instead of extending `RunScheduler`'s
+`continue_goal`-only action dispatch to a second action type. Investigating
+whether a full `GitCheckpointSnapshot` needed to be stored durably (beyond
+the bare `workspaceRef` this session's checkpoint composition already
+persists) found that it does not: `GitService.readCheckpointSnapshot`
+already reconstructs `commit`/`baseCommit`/`indexCommit` from a ref alone
+by reading the commit's parents, and `restoreWorkspaceSnapshot` already
+accepts a bare ref string directly — so no prerequisite change to the
+create side was needed. `tests/integration/checkpoint-restore.test.ts`
+proves the refusal-while-not-paused case, the successful revert with a
+real resolvable pre-restore ref, refusal for an unknown checkpoint id, and
+the 501 when no restorer is configured.
