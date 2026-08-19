@@ -51,7 +51,13 @@ methods) — the other seven architecture docs were checked and found
 accurate. `KP-033` (the `Checkpoint` protocol type mismatch) was
 reconciled alongside it. GitHub Actions run 32298325087 (commit
 `856978f`) confirmed Ubuntu/macOS/Windows/`action-smoke` all pass
-together on this change, including the `Checkpoint` type edit. `KP-032`
+together on this change, including the `Checkpoint` type edit. A
+provenance/security audit pass ran: `pnpm audit` found and fixed one
+real, low-severity, dev-only advisory (`esbuild`, `KP-038` — now zero
+vulnerabilities at every severity), and SQL-injection,
+credential-logging, file-permission, and command-injection (`shell:
+false` at every `spawn()` call site, verified directly) checks were
+performed with no findings. `KP-032`
 (an unexplained `LeaseFencedError` on a doc-only commit) has not
 recurred on any run since it was first observed. The Requirement Ledger
 still has open `UNPROVEN` entries with direct final
@@ -367,11 +373,19 @@ and security gaps.
   and three SDK methods from its own description. AGENTS.md, CONTEXT.md,
   LONG_HORIZON.md, OVERVIEW.md, PERSISTENCE.md, and SECURITY.md were
   checked and found accurate.
+- Performed a provenance/security audit pass: `pnpm audit` (found and
+  fixed `KP-038`, an `esbuild` dev-only advisory, now zero
+  vulnerabilities), a direct read of every SQL template literal with
+  `${...}` interpolation in the control plane (one instance, confirmed
+  parameterized-values-only, no injection risk), a direct check of every
+  `spawn()` call site's `shell` option (all four `shell: false`), and a
+  check for credential logging in provider/daemon code plus a direct
+  read of the daemon token descriptor's write path (`0o600` inside
+  `0o700`, atomic temp-then-rename). No new findings beyond `KP-038`,
+  which is resolved.
 
 ## Open milestones
 
-- Perform a provenance/security audit pass on the final worktree — the
-  next item.
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
@@ -443,6 +457,14 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- Root lint, typecheck, boundaries, all test suites, build, and package
+  smoke passed on 2026-08-19 after bumping `esbuild` `^0.27.0` ->
+  `^0.28.2` for `KP-038` (unit 111/111, integration 46/46, e2e 7/7,
+  recovery 5/5); `pnpm audit` confirms zero vulnerabilities — not yet
+  pushed/re-confirmed on GitHub Actions as of this checkpoint.
+- GitHub Actions run 32298325087 (commit `856978f`, 2026-08-19) confirmed
+  Ubuntu, macOS, Windows, and `action-smoke` all pass together on the
+  R61/`KP-033` change.
 - GitHub Actions run 32297161682 (commit `476a027`, 2026-08-19) confirmed
   Ubuntu, macOS, Windows, and `action-smoke` all pass together on the R60
   closure. The R61 documentation fix (README.md,
@@ -547,8 +569,11 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the R61 documentation audit (6 doc fixes across README.md/
-RUNTIME.md/RECOVERY.md/PROTOCOL.md, plus `KP-033`'s protocol type
-reconciliation), re-confirm cross-platform CI on the new HEAD, then work
-`NEXT_ACTIONS.md` in order starting with a provenance/security audit
-pass.
+Commit and push the security audit's one real finding (the `esbuild`
+version bump, `KP-038`), re-confirm cross-platform CI on the new HEAD.
+With R34/R45/R46/R47/R49/R51/R60/R61 all closed this session and only
+`KP-024`/`KP-032`/`KP-037` (each individually deliberate/monitored, not
+neglected) plus R48/R53/R55's intentionally-unbounded scope remaining,
+the next step is a genuinely full root-matrix-plus-cross-platform-CI
+re-confirmation on the final HEAD before reconsidering `TRUE_COMPLETE` —
+not a new feature increment.

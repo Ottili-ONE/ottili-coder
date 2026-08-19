@@ -1,85 +1,62 @@
 # Next Actions
 
-Since the last revision, Task Graph/Agent Graph delegation, live context
-composition, provider failover, stagnation response, lease-fencing hardening,
-shared multi-agent budgets, the real daemon-kill acceptance test, a partial
-`store.ts` decomposition, seven real cross-platform/CI defects (KP-025
-through KP-031, all resolved), MCP/LSP, worktree, and checkpoint composition
-into the live capability system, a workspace-only checkpoint restore flow
-(CLI/API/SDK), closing R54/R56's stated coverage gaps (SSE reconnect across a
-dropped/restarted daemon; explicit CLI `resume` lifecycle), proving R45–R49
-(managed-auth token wiring, BYOK/managed provider round trips, deleting
-confirmed-dead `packages/integrations/src/provider.ts`, and deterministic
-remote/hybrid execution-backend contract tests), and auditing R51 (adding the
-literal missing `ottili-coder models`/`ottili-coder mcp` CLI surface; judging
-Build/Plan/Debug/Ask satisfied by the existing `AgentRole`/`--permission-mode`
-redesign; building `action.yml`, a real composite GitHub Action wrapping the
-headless Run API, self-tested by a new `action-smoke` CI job — including
-finding and fixing `KP-036`, a real defect the smoke test's own first run
-caught; recording OAuth login as the one genuinely open R51 gap; and
-expanding the OCF benchmark to three representative dataset shapes plus a
-real `cl100k_base` tokenizer comparison, closing R34/`KP-010` and finding
-`KP-037` (OCF is not composed into `RunContextCompiler`'s live output,
-deliberately not attempted without live-model validation); and closing R60
-by confirming directly (grepping the actual shipped bundle, not source)
-that the product has zero third-party runtime dependencies, plus a full
-`pnpm licenses list` audit finding no copyleft license; and closing R61 —
-a general-purpose agent audited README.md and every `docs/architecture/*.md`
-file against current source claim by claim, found and fixed 6 real
-discrepancies (a missing CLI command, a nonexistent type name, a doc
-describing the wrong — uninstantiated — restore mechanism, three missing
-protocol routes/SDK methods), and `KP-033`'s protocol type mismatch was
-reconciled alongside it (`Checkpoint` redefined to structurally match
-`CheckpointRecord` exactly) — were implemented/fixed with direct
-regressions
-(R12/R17/R18/R22/R23/R34/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R60/R61/R66).
-GitHub Actions run 32297161682 (commit `476a027`) confirmed Ubuntu, macOS,
-Windows, and `action-smoke` all pass together on the R60 closure; the R61 +
-KP-033 change below has not yet been pushed/re-confirmed on CI. Continue in
-this order; do not declare `TRUE_COMPLETE` while any item remains open.
+This session closed nearly every remaining open requirement with direct
+evidence: MCP/LSP/worktree/checkpoint composition into the live runtime
+(including workspace-only checkpoint restore), R45–R49 (managed-auth
+wiring, BYOK/managed provider round trips, deleting confirmed-dead
+`packages/integrations/src/provider.ts`, deterministic remote/hybrid
+backend contracts), R51 (`ottili-coder models`/`ottili-coder mcp` CLI
+commands, `action.yml` — a real composite GitHub Action self-tested by a
+CI job that actually invokes it), R34 (OCF benchmark expanded to
+representative datasets plus a real tokenizer comparison), R60
+(confirmed the shipped product has zero third-party runtime
+dependencies and its devDependency tree has no copyleft license), R61 (a
+full documentation-to-implementation audit found and fixed 6 real
+discrepancies), and a provenance/security audit pass (found and fixed
+one real advisory, `KP-038`). Full detail and evidence for every item is
+in `VALIDATION_LOG.md`, `KNOWN_PROBLEMS.md`, and `DECISIONS.md`
+(ADR-017 through ADR-024). GitHub Actions has confirmed green on every
+substantive commit through run 32298325087 (commit `856978f`); the
+`esbuild` bump (`KP-038`) has not yet been pushed/re-confirmed on CI as
+of this revision. Do not declare `TRUE_COMPLETE` while any item below
+remains open.
 
-1. Perform a fresh provenance and security audit pass on the final
-   worktree (R01/R05 provenance already has direct evidence from this
-   session's work; a dedicated security-review pass has not run).
+1. Push the `esbuild` bump (`KP-038`) and re-confirm cross-platform CI.
 2. Rerun the full root matrix (`pnpm install --frozen-lockfile`, lint,
-   format:check, check:eol, check:boundaries, typecheck, test, test:integration,
-   test:recovery, test:e2e, build, test:package, bench) plus a re-confirmed
-   green cross-platform GitHub Actions matrix (including `action-smoke`)
-   after the final source change, then update the ledger only from that
-   evidence before reconsidering `TRUE_COMPLETE`.
+   format:check, check:eol, check:boundaries, typecheck, test,
+   test:integration, test:recovery, test:e2e, build, test:package, bench)
+   plus a re-confirmed green cross-platform GitHub Actions matrix
+   (including `action-smoke`) on the actual final commit before
+   reconsidering `TRUE_COMPLETE`.
 
-`KP-037` (OCF not composed into `RunContextCompiler`'s live output) needs
-either live-model access to validate whether a real provider parses OCF's
-compact/dense syntax as reliably as JSON on the highest-consequence payload
-in the system, or a conservative first step (the `readable` profile only,
-on one low-stakes context section) with an explicit before/after
-mission-outcome comparison — not a blind swap. Not a scheduled action item
-until one of those is possible.
+## Deliberately open, not neglected
 
-R51's one remaining gap — interactive Ottili-Auth OAuth login — needs a live
-external Ottili Auth service this environment cannot reach; leave it
-explicitly open rather than attempting a fake/local stand-in. Not a
-scheduled action item until that access exists.
-
-R48 stays deliberately UNPROVEN (see `KP-035`/ADR-022): composing
-`LocalExecutionBackend` into `execute_command`'s real dispatch path needs a
-dependency-graph decision (a shared low-level process-exec package so
-`packages/integrations` can reach the same Windows/output-safety hardening
-`packages/runtime/src/command-target.ts` already has) that is disproportionate
-to bolt onto R45–R49's closure. Pick this up as its own scoped increment,
-ideally alongside `KP-024`'s `store.ts` module-boundary cleanup rather than
-in isolation.
-
-R53/R55 remain UNPROVEN by design: "full endpoint/error coverage across
-every route" and "full SDK surface coverage" are not bounded targets the
-way a specific gap (R54/R56, now closed) is. Keep narrowing them
-opportunistically rather than treating either as a discrete task to finish.
-
-Also watch `KP-032` (an unreproduced one-off `LeaseFencedError` in
-`multi-agent-graph.test.ts`'s restart test on an unrelated commit): if it
-recurs, capture full evidence before attempting a fix rather than guessing.
-
-A future increment could extend checkpoint restore beyond workspace-only
-(full point-in-time Task/Agent Graph reconstruction via event replay), but
-that is a materially larger feature deliberately left out of ADR-021's
-scope.
+- **`KP-024`** (`store.ts` still a single ~3000-line module): a partial
+  decomposition already happened this session (ADR-014); further
+  splitting risks the transactional-fencing invariants that decomposition
+  proved. Pick up alongside `KP-035` if a dependency-graph refactor is
+  ever undertaken.
+- **`KP-032`** (an unreproduced one-off `LeaseFencedError` on an unrelated
+  doc-only commit): has not recurred across every subsequent CI run this
+  session. If it recurs, capture full evidence before attempting a fix
+  rather than guessing.
+- **`KP-035`** / **R48** (`LocalExecutionBackend` is not `execute_command`'s
+  live implementation): composing it in would regress the Windows/output-
+  safety hardening `execute_command` already has; needs a dependency-graph
+  decision (a shared low-level process-exec package) first. Not scheduled
+  until that decision is made.
+- **`KP-037`** (OCF's codec is not composed into `RunContextCompiler`'s
+  live output): needs live-model access to validate whether a real
+  provider parses OCF's compact/dense syntax as reliably as JSON on the
+  highest-consequence payload in the system, or a conservative first step
+  with an explicit before/after mission-outcome comparison. Not scheduled
+  until one of those is possible.
+- **R51's OAuth gap** (interactive Ottili-Auth login): needs a live
+  external Ottili Auth service this environment cannot reach. Not
+  scheduled until that access exists.
+- **R53/R55** (full server-API/full SDK-surface error-path coverage): not
+  bounded targets the way R54/R56 were. Keep narrowing opportunistically,
+  not as a discrete task.
+- A future increment could extend checkpoint restore beyond workspace-only
+  (full point-in-time Task/Agent Graph reconstruction via event replay),
+  deliberately left out of ADR-021's scope as materially larger.
