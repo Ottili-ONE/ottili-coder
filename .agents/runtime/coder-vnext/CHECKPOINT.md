@@ -22,15 +22,17 @@ into `execute_command`'s real dispatch path needs a dependency-graph
 change out of proportion to this increment). R51 (legacy feature parity)
 gained real, concrete progress this pass — `ottili-coder models`/
 `ottili-coder mcp` close its literal missing-CLI-surface gap, Build/Plan/
-Debug/Ask is judged satisfied by the existing multi-agent redesign — but
-stays UNPROVEN: OAuth login and a publishable GitHub Action are genuine,
-documented, open gaps. GitHub Actions run 32270519687 (commit `d299614`)
-confirmed Ubuntu/macOS/Windows all pass together on the `models`/`mcp`
-CLI addition itself.
-`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit)
-has not recurred on any run since it was first observed. The Requirement
-Ledger still has open `UNPROVEN` entries with direct final audits
-remaining.
+Debug/Ask is judged satisfied by the existing multi-agent redesign,
+`action.yml` is a real working composite GitHub Action self-tested by a
+new `action-smoke` CI job (ADR-023) — but stays UNPROVEN: interactive
+OAuth login is the one remaining genuine, documented, open gap. GitHub
+Actions run 32270519687 (commit `d299614`) confirmed Ubuntu/macOS/Windows
+all pass together, but that predates the `action.yml`/`action-smoke`
+addition — CI (now including the new `action-smoke` job) must be
+re-confirmed on the new HEAD. `KP-032` (an unexplained `LeaseFencedError`
+on a doc-only commit) has not recurred on any run since it was first
+observed. The Requirement Ledger still has open `UNPROVEN` entries with
+direct final audits remaining.
 
 ## Current milestone
 
@@ -276,16 +278,26 @@ and security gaps.
   from `provider-registry.ts` for reuse instead of duplicating them. Judged
   Build/Plan/Debug/Ask satisfied by redesign (`AgentRole` +
   `--permission-mode` already cover the intent through vNext's multi-agent
-  design). Left OAuth login and a publishable GitHub Action genuinely open —
-  real, bounded gaps, not fake-closed.
+  design). Left OAuth login genuinely open — a real gap needing a live
+  external Ottili Auth service this environment cannot reach.
 - Current automated root matrix passes again after `models`/`mcp`: unit
   (111), integration (46), e2e (7), recovery (5), plus all remaining listed
   commands.
+- Built `action.yml` (ADR-023): a real composite GitHub Action wrapping
+  `daemon start`/`run`/`run status`/`daemon stop` into a headless-Mission
+  workflow step. Every `${{ inputs.* }}`/`${{ steps.*.outputs.* }}` value
+  goes through `env:` before a `run:` script touches it — direct
+  interpolation into shell script text is a known GitHub Actions
+  script-injection vector. `.github/workflows/ci.yml` gained a second job,
+  `action-smoke`, that invokes the action (`uses: ./`) against this
+  repository's own checkout with no provider credentials configured, and
+  asserts (via `continue-on-error` plus an outcome check) that it correctly
+  reports `waiting_external` rather than hanging or failing silently —
+  proving the action's plumbing without spending a real provider key.
+  Closes R51's last literal, bounded gap.
 
 ## Open milestones
 
-- Build a publishable GitHub Action wrapping the headless Run API (R51's
-  remaining concrete gap).
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
@@ -299,16 +311,24 @@ and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. The `models`/`mcp` CLI
-addition (part of R51) is committed and locally validated. Resume with the
+No specific source edit is active in this checkpoint. `action.yml` and the
+`action-smoke` CI job (the last concrete piece of R51) are committed and
+locally validated (YAML-parsed, full local matrix green). Resume with the
 ordered work in `NEXT_ACTIONS.md`, starting with pushing this change and
-re-confirming cross-platform CI on the new HEAD.
+re-confirming cross-platform CI — including the new `action-smoke` job —
+on the new HEAD.
 
 ## Active validation
 
 Current full matrix: unit 111/111, integration 46/46, e2e 7/7, recovery
 5/5; lint/format/check:eol/check:boundaries/typecheck/build/bench/package
-smoke pass, all re-run after the `models`/`mcp` additions. The daemon-kill
+smoke pass, all re-run after adding `action.yml`/`action-smoke` (no source
+package changed, so counts are unchanged from the `models`/`mcp` pass).
+`action.yml`/`.github/workflows/ci.yml` were validated by parsing with
+Python's `yaml.safe_load` (structurally correct) since `actionlint` is not
+available in this environment; the `action-smoke` CI job itself is the
+real, first end-to-end proof and has not run yet as of this local commit.
+The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
 competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`),
@@ -425,8 +445,8 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the `models`/`mcp` CLI addition, re-confirm the
-cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
-order starting with a publishable GitHub Action wrapping the headless Run
-API (R51's remaining concrete gap). Rerun all final validation after the
-final source change.
+Commit and push `action.yml`/`action-smoke`, watch the `action-smoke` job
+specifically (a genuinely new CI job, not just the existing `validate`
+matrix) alongside the platform matrix on the new HEAD, then work
+`NEXT_ACTIONS.md` in order starting with expanding the OCF benchmark (R34).
+Rerun all final validation after the final source change.

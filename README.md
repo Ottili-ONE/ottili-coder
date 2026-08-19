@@ -108,6 +108,8 @@ approvals list <run-id>
 approvals resolve <run-id> <approval-id> <approved|rejected> [--resolver <id>]
 config preview|import
 doctor
+models
+mcp
 ```
 
 Use --json for machine-readable CLI output. attach reads durable history first
@@ -121,6 +123,30 @@ This separation is intentional: terminal processes never own the Run lifecycle.
 
 See [the protocol guide](docs/architecture/PROTOCOL.md) for the HTTP endpoints
 and [the migration guide](MIGRATION.md) for legacy configuration import.
+
+## GitHub Action
+
+[`action.yml`](action.yml) wraps the same headless Run API in a composite
+GitHub Action: it builds the bundled daemon/CLI, creates a durable Run
+against the caller's checkout, polls until a terminal status, and fails the
+step if the Run did not complete. Provider credentials come from the calling
+workflow's own environment (e.g. a secret exported as `ANTHROPIC_API_KEY`),
+never from an action input.
+
+```yaml
+- uses: Ottili-ONE/ottili-coder@main
+  with:
+    prompt: "Fix the failing test in packages/example."
+    provider: anthropic
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+Outputs: `run-id`, `status`, and a one-line `summary`. `.github/workflows/ci.yml`'s
+`action-smoke` job exercises the action against this repository itself on
+every push, deliberately without credentials, to prove the action correctly
+detects and reports a non-completed Run (`waiting_external`) rather than
+hanging or failing silently.
 
 ## Safety model
 

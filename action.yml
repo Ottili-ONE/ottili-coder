@@ -1,0 +1,158 @@
+name: "Ottili Coder"
+description: >-
+  Runs a durable Ottili Coder Mission headlessly against this workflow's
+  checkout, using the same daemon and CLI a local install uses. Provider
+  credentials come from the calling workflow's own environment/secrets,
+  never from an input, so the action never handles a key directly.
+author: "Ottili"
+branding:
+  icon: "terminal"
+  color: "purple"
+
+inputs:
+  prompt:
+    description: "The Mission prompt to run."
+    required: true
+  workspace:
+    description: "Path to run against, relative to the caller's checkout."
+    required: false
+    default: "."
+  provider:
+    description: >-
+      Provider kind (anthropic, google, openai, openai-compatible,
+      openrouter, ottili). The matching credential env var
+      (e.g. ANTHROPIC_API_KEY) must already be set in the job.
+    required: false
+    default: "anthropic"
+  model:
+    description: "Model id passed through to the provider."
+    required: false
+    default: ""
+  permission-mode:
+    description: "safe | standard | autonomous | unrestricted"
+    required: false
+    default: "standard"
+  timeout-minutes:
+    description: "How long to poll for a terminal Run status before failing."
+    required: false
+    default: "30"
+
+outputs:
+  run-id:
+    description: "The durable Run id created for this Mission."
+    value: ${{ steps.run.outputs.run-id }}
+  status:
+    description: "The Run's status when polling stopped (may be non-terminal on timeout)."
+    value: ${{ steps.poll.outputs.status }}
+  summary:
+    description: "One-line human-readable summary."
+    value: ${{ steps.poll.outputs.summary }}
+
+# Every `${{ inputs.* }}`/`${{ steps.*.outputs.* }}` value below is passed to
+# each step through `env:`, never interpolated directly into a `run:` string.
+# Template-expanding an untrusted input straight into a shell command is a
+# known GitHub Actions script-injection vector (a prompt containing `"; ...`
+# or backticks would otherwise execute in the runner's shell); an `env:` var
+# goes through ordinary shell variable expansion instead, which is not.
+runs:
+  using: "composite"
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.15.1
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+        cache-dependency-path: ${{ github.action_path }}/pnpm-lock.yaml
+
+    - name: Build the bundled daemon/CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm build
+
+    - name: Start the daemon
+      id: daemon
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        config_dir="${RUNNER_TEMP}/ottili-coder-${RUN_KEY}"
+        mkdir -p "$config_dir"
+        echo "config-dir=$config_dir" >> "$GITHUB_OUTPUT"
+        node dist/apps/cli/src/main.js daemon start \
+          --config-dir "$config_dir" --json
+
+    - name: Create the Run
+      id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        OTTILI_PROVIDER: ${{ inputs.provider }}
+        OTTILI_MODEL: ${{ inputs.model }}
+        MISSION_PROMPT: ${{ inputs.prompt }}
+        RUN_WORKSPACE: ${{ inputs.workspace }}
+        RUN_PERMISSION_MODE: ${{ inputs.permission-mode }}
+        RUN_CONFIG_DIR: ${{ steps.daemon.outputs.config-dir }}
+      run: |
+        workspace_path="$(cd "${GITHUB_WORKSPACE}/${RUN_WORKSPACE}" && pwd)"
+        result="$(node dist/apps/cli/src/main.js run "$MISSION_PROMPT" \
+          --config-dir "$RUN_CONFIG_DIR" \
+          --workspace "$workspace_path" \
+          --permission-mode "$RUN_PERMISSION_MODE" \
+          --json)"
+        echo "$result"
+        run_id="$(printf '%s' "$result" | jq -r '.run.id')"
+        if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+          echo "::error::Ottili Coder did not return a Run id."
+          exit 1
+        fi
+        echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+
+    - name: Wait for a terminal Run status
+      id: poll
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        RUN_ID: ${{ steps.run.outputs.run-id }}
+        RUN_CONFIG_DIR: ${{ steps.daemon.outputs.config-dir }}
+        POLL_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+      run: |
+        deadline=$(( $(date +%s) + POLL_TIMEOUT_MINUTES * 60 ))
+        status="unknown"
+        while [ "$(date +%s)" -lt "$deadline" ]; do
+          detail="$(node dist/apps/cli/src/main.js run status "$RUN_ID" \
+            --config-dir "$RUN_CONFIG_DIR" --json)"
+          status="$(printf '%s' "$detail" | jq -r '.run.status')"
+          case "$status" in
+            completed|failed|cancelled) break ;;
+          esac
+          sleep 5
+        done
+        summary="Run $RUN_ID ended as $status"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        echo "summary=$summary" >> "$GITHUB_OUTPUT"
+        echo "$summary"
+
+    - name: Stop the daemon
+      if: always()
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        RUN_CONFIG_DIR: ${{ steps.daemon.outputs.config-dir }}
+      run: |
+        node dist/apps/cli/src/main.js daemon stop \
+          --config-dir "$RUN_CONFIG_DIR" --json || true
+
+    - name: Fail on a non-completed Run
+      shell: bash
+      env:
+        FINAL_STATUS: ${{ steps.poll.outputs.status }}
+      run: |
+        if [ "$FINAL_STATUS" != "completed" ]; then
+          echo "::error::Ottili Coder Run did not complete (status: $FINAL_STATUS)."
+          exit 1
+        fi

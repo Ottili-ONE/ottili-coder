@@ -13,31 +13,34 @@ confirmed-dead `packages/integrations/src/provider.ts`, and deterministic
 remote/hybrid execution-backend contract tests), and auditing R51 (adding the
 literal missing `ottili-coder models`/`ottili-coder mcp` CLI surface; judging
 Build/Plan/Debug/Ask satisfied by the existing `AgentRole`/`--permission-mode`
-redesign; recording OAuth login and a publishable GitHub Action as genuinely
-open, not fake-closed) were implemented/fixed with direct regressions
-(R12/R17/R18/R22/R23/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R66). GitHub
-Actions run 32269711392 (commit `e9d66c9`) confirmed Ubuntu, macOS, and
-Windows all pass together, though that predates the `models`/`mcp` CLI
-addition below — CI must be re-confirmed on the new HEAD. Continue in this
-order; do not declare `TRUE_COMPLETE` while any item remains open.
+redesign; building `action.yml`, a real composite GitHub Action wrapping the
+headless Run API, self-tested by a new `action-smoke` CI job; recording OAuth
+login as the one genuinely open R51 gap) were implemented/fixed with direct
+regressions (R12/R17/R18/R22/R23/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R66).
+GitHub Actions run 32270519687 (commit `d299614`) confirmed Ubuntu, macOS, and
+Windows all pass together, though that predates the `action.yml`/
+`action-smoke` addition below — CI must be re-confirmed on the new HEAD, and
+this is the first commit that needs the new `action-smoke` job to pass too,
+not just the `validate` matrix. Continue in this order; do not declare
+`TRUE_COMPLETE` while any item remains open.
 
-1. Build a publishable GitHub Action wrapping the headless Run API (R51's
-   remaining concrete gap) — a real, bounded increment, not started.
-   Interactive Ottili-Auth OAuth login is a separate, larger gap that needs a
-   live external Ottili Auth service this environment cannot reach; leave it
-   explicitly open rather than attempting a fake/local stand-in.
-2. Expand the OCF benchmark with representative datasets and a documented
+1. Expand the OCF benchmark with representative datasets and a documented
    tokenizer strategy (R34, `KP-010`).
-3. Perform fresh documentation-to-implementation (R61), dependency-license
+2. Perform fresh documentation-to-implementation (R61), dependency-license
    (R60), provenance, and security audits on the final worktree. Reconcile
    `KP-033` (the `Checkpoint`/`CheckpointListResponse` protocol types do not
    match `CheckpointRecord`'s actual shape) alongside R61.
-4. Rerun the full root matrix (`pnpm install --frozen-lockfile`, lint,
+3. Rerun the full root matrix (`pnpm install --frozen-lockfile`, lint,
    format:check, check:eol, check:boundaries, typecheck, test, test:integration,
    test:recovery, test:e2e, build, test:package, bench) plus a re-confirmed
-   green cross-platform GitHub Actions matrix after the final source change,
-   then update the ledger only from that evidence before reconsidering
-   `TRUE_COMPLETE`.
+   green cross-platform GitHub Actions matrix (including `action-smoke`)
+   after the final source change, then update the ledger only from that
+   evidence before reconsidering `TRUE_COMPLETE`.
+
+R51's one remaining gap — interactive Ottili-Auth OAuth login — needs a live
+external Ottili Auth service this environment cannot reach; leave it
+explicitly open rather than attempting a fake/local stand-in. Not a
+scheduled action item until that access exists.
 
 R48 stays deliberately UNPROVEN (see `KP-035`/ADR-022): composing
 `LocalExecutionBackend` into `execute_command`'s real dispatch path needs a

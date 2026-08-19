@@ -38,3 +38,37 @@ jobs:
       - run: pnpm test:e2e
       - run: pnpm build
       - run: pnpm test:package
+
+  # Exercises the repo's own action.yml (`uses: ./`) end to end: builds the
+  # daemon/CLI it wraps, creates a real durable Run, and polls it. No
+  # provider credentials are configured, so the Run is expected to reach
+  # `waiting_external` (an authentication ProviderFailure on its first turn)
+  # rather than `completed` — proving the action's plumbing (daemon
+  # start/stop, Run creation, status polling, non-completion reporting)
+  # without needing a real provider key in this repo's CI.
+  action-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Invoke the action with no provider configured
+        id: invoke
+        continue-on-error: true
+        uses: ./
+        with:
+          prompt: "Say hello."
+          timeout-minutes: "1"
+      - name: Assert the action reported the expected non-completed status
+        env:
+          INVOKE_OUTCOME: ${{ steps.invoke.outcome }}
+          INVOKE_STATUS: ${{ steps.invoke.outputs.status }}
+          INVOKE_SUMMARY: ${{ steps.invoke.outputs.summary }}
+        run: |
+          if [ "$INVOKE_OUTCOME" != "failure" ]; then
+            echo "::error::Expected the action to fail without provider credentials, got outcome '$INVOKE_OUTCOME'."
+            exit 1
+          fi
+          if [ "$INVOKE_STATUS" != "waiting_external" ]; then
+            echo "::error::Expected status waiting_external, got '$INVOKE_STATUS'."
+            exit 1
+          fi
+          echo "Action smoke test passed: $INVOKE_SUMMARY"
