@@ -14,13 +14,12 @@ fully resolved), `KP-031` (sandbox `writableRoots` not widening to a
 delegate's worktree) is fixed (ADR-020), and R54/R56's specific stated
 coverage gaps (SSE reconnect across a dropped/restarted daemon; explicit
 CLI `resume` lifecycle) are now closed with direct evidence — both moved
-UNPROVEN → PROVEN. GitHub Actions run 32265182592 (commit `ded0e49`)
-confirmed Ubuntu/macOS/Windows all pass together, but that predates the
-v2 API coverage change below, so CI must be re-confirmed on the new HEAD.
-`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit) has not
-recurred on any of the three runs since it was first observed. The
-Requirement Ledger still has open `UNPROVEN` entries with direct final
-audits remaining.
+UNPROVEN → PROVEN. GitHub Actions run 32266839233 (commit `680fe5c`)
+confirmed Ubuntu/macOS/Windows all pass together on the v2 API coverage
+change itself. `KP-032` (an unexplained `LeaseFencedError` on a doc-only
+commit) has not recurred on any of the four runs since it was first
+observed. The Requirement Ledger still has open `UNPROVEN` entries with
+direct final audits remaining.
 
 ## Current milestone
 
