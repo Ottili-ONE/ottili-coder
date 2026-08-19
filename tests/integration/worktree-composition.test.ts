@@ -34,25 +34,18 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
   return result.stdout;
 }
 
-/**
- * A `parent` directory holding the primary repository as a child, so a
- * sandbox that grants `parent` as writable also covers the sibling
- * `.ottili-worktrees` tree `GitWorktreeProvisioner` creates next to it —
- * the same shape a real operator configures, not the whole OS temp root.
- */
 async function fixtureRepository(): Promise<{
-  readonly parent: string;
   readonly workspacePath: string;
 }> {
   const raw = await mkdtemp(join(tmpdir(), "ottili-worktree-fixture-"));
   directories.push(raw);
   // Canonicalized once, here: `os.tmpdir()` sits behind a symlink on macOS
   // (`/var` -> `/private/var`), and `GitWorktreeProvisioner` always reports
-  // a worktree's path the way Git does — canonical. A sandbox writableRoots
-  // entry built from the raw, unresolved form would fail to prefix-match
-  // the namespaced scope of a write inside that worktree, denying it
-  // silently (the same root cause as ADR-009/KP-019, reached through a
-  // fixture's own sandbox config this time, not the product).
+  // a worktree's path the way Git does — canonical. `mission.workspaceUri`
+  // built from the raw, unresolved form would fail to prefix-match a
+  // namespaced scope for a write inside a worktree it provisions later —
+  // the same root cause as ADR-009/KP-019, reached through a fixture's own
+  // workspace path this time, not the product.
   const parent = await canonicalizePath(raw);
   const workspacePath = join(parent, "repo");
   await mkdir(workspacePath);
@@ -60,7 +53,7 @@ async function fixtureRepository(): Promise<{
   await git(workspacePath, ["config", "user.email", "tests@ottili.local"]);
   await git(workspacePath, ["config", "user.name", "Ottili Tests"]);
   await git(workspacePath, ["commit", "--allow-empty", "-m", "initial"]);
-  return { parent, workspacePath };
+  return { workspacePath };
 }
 
 async function temporaryDatabasePath(): Promise<string> {
@@ -118,7 +111,7 @@ function coordinatorFor(
 
 describe("isolated worktrees for delegated agents", () => {
   it("scopes a delegate's tools and context to its own worktree, and reuses it across a daemon restart", async () => {
-    const { parent, workspacePath } = await fixtureRepository();
+    const { workspacePath } = await fixtureRepository();
     const workspaceUri = pathToFileURL(workspacePath).href;
     const path = await temporaryDatabasePath();
 
@@ -126,11 +119,13 @@ describe("isolated worktrees for delegated agents", () => {
     const created = firstStore.createRun({
       permissions: { mode: "autonomous" },
       prompt: "Write a coordinator note, then delegate a delegate note.",
+      // Deliberately narrow — only the primary workspace, the same grant
+      // the CLI's own default would produce. The delegate's write below
+      // succeeds only because the coordinator grants a delegate's own
+      // worktree automatically for the turn (KP-031's fix); a broader,
+      // pre-configured grant covering `.ottili-worktrees` would mask that.
       sandbox: {
-        filesystem: {
-          readOnlyRoots: [],
-          writableRoots: [pathToFileURL(parent).href],
-        },
+        filesystem: { readOnlyRoots: [], writableRoots: [workspaceUri] },
         network: { allowedDestinations: [], enabled: false },
         permissions: { mode: "autonomous" },
         process: { enabled: false },
@@ -347,21 +342,19 @@ describe("isolated worktrees for delegated agents", () => {
   });
 
   it("leaves the coordinator on the shared workspace even when worktree provisioning is enabled", async () => {
-    const { parent, workspacePath } = await fixtureRepository();
+    const { workspacePath } = await fixtureRepository();
+    const workspaceUri = pathToFileURL(workspacePath).href;
     const store = new RunStore(new SqliteDatabase(":memory:"));
     const created = store.createRun({
       permissions: { mode: "autonomous" },
       prompt: "Write directly, never delegate.",
       sandbox: {
-        filesystem: {
-          readOnlyRoots: [],
-          writableRoots: [pathToFileURL(parent).href],
-        },
+        filesystem: { readOnlyRoots: [], writableRoots: [workspaceUri] },
         network: { allowedDestinations: [], enabled: false },
         permissions: { mode: "autonomous" },
         process: { enabled: false },
       },
-      workspaceUri: pathToFileURL(workspacePath).href,
+      workspaceUri,
     });
     const runId = created.run.id;
 

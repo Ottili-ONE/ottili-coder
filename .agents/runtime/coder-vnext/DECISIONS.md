@@ -361,3 +361,35 @@ way `KP-031` was left open rather than silently worked around. Triggering on
 `complete_task` specifically (not, say, every N turns) ties a checkpoint to
 a concrete, evidence-backed unit of progress a later restore would actually
 want to return to, rather than an arbitrary time- or turn-based interval.
+
+## ADR-020 — A delegate's own worktree is granted as writable ephemerally, per turn, never durably
+
+**Decision:** `RunCoordinator.sandboxForTurn(agent, workspaceUri,
+missionWorkspaceUri)` adds `workspaceUri` (the _effective_, worktree-aware
+URI `ensureAgentWorktree` already resolved) to a **copy** of the acting
+Agent's `sandbox.filesystem.writableRoots`, only when it differs from the
+Mission's own `workspaceUri`, and only for the object handed to
+`createDurableTools`'s authorization checks this turn. `createMissionTools`
+— the thing `delegate_task` reads `agent.sandbox` through to set a new
+child's _durable_ sandbox — still receives the original, unwidened `acting`.
+Nothing is written back to the `agents` table.
+
+**Why:** `GitWorktreeProvisioner` places a delegate's worktree as a sibling
+of the primary workspace, a path a `writableRoots` entry scoped to the
+Mission's own workspace (the CLI's own default) cannot cover — confirmed
+directly by `KP-031`, where even the _test's own_ explicit grant of the
+worktree's parent directory still silently denied the write on macOS/Windows
+because of a canonicalization mismatch between the grant and the namespaced
+scope. Widening the durable `agents.sandbox_json` row instead was
+considered and rejected: it would let the widening leak into a further
+delegate spawned via `delegate_task` (which inherits `sandbox: agent.sandbox`
+unchanged) — a grandchild would durably inherit write access to its
+_parent's_ worktree, a capability nobody granted it and that would outlive
+the parent's own task. Scoping the grant to one turn's authorization check
+keeps the durable sandbox row meaning exactly what an operator configured,
+while still letting a delegate work inside the isolation the coordinator
+itself decided to provision.
+`tests/integration/worktree-composition.test.ts` was deliberately narrowed
+to grant only the primary workspace (the previous `parent`-directory
+workaround removed) and still passes, proving the fix — not a broader
+pre-configured grant — is what makes the delegate's write succeed.

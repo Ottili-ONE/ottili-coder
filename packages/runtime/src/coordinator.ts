@@ -169,7 +169,7 @@ export class RunCoordinator implements RunActionExecutor {
     const sourceTools = await this.resolveTools(workspaceUri, run.id);
     const durableTools = this.createDurableTools(
       input.lease,
-      acting,
+      this.sandboxForTurn(acting, workspaceUri, mission.workspaceUri),
       mergeRegistries([
         sourceTools,
         createMissionTools({
@@ -853,6 +853,39 @@ export class RunCoordinator implements RunActionExecutor {
    * durable). Provisioning is best-effort: a failure falls back to the
    * shared workspace rather than blocking the delegate's turn.
    */
+  /**
+   * A delegate's own worktree is granted as writable for this turn's
+   * authorization checks only — never persisted, and never visible to
+   * `createMissionTools`, so a further `delegate_task` cannot let this
+   * ephemeral widening leak into a grandchild's durable sandbox (KP-031).
+   * Without this, an operator's `writableRoots` (naturally scoped to the
+   * Mission's own workspace) would silently deny every write a delegate
+   * makes inside its isolated worktree, since that path lives outside the
+   * primary workspace root by construction.
+   */
+  private sandboxForTurn(
+    agent: Agent,
+    workspaceUri: string,
+    missionWorkspaceUri: string,
+  ): Agent {
+    if (workspaceUri === missionWorkspaceUri) return agent;
+    if (agent.sandbox.filesystem.writableRoots.includes(workspaceUri))
+      return agent;
+    return {
+      ...agent,
+      sandbox: {
+        ...agent.sandbox,
+        filesystem: {
+          ...agent.sandbox.filesystem,
+          writableRoots: [
+            ...agent.sandbox.filesystem.writableRoots,
+            workspaceUri,
+          ],
+        },
+      },
+    };
+  }
+
   private async ensureAgentWorktree(
     agent: Agent,
     mission: Mission,
