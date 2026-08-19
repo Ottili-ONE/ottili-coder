@@ -246,7 +246,22 @@ function parseStringRecord(
   return parsed;
 }
 
+/**
+ * A bare Windows drive-letter path (`C:\...`) is not a URI, but `new URL()`
+ * disagrees: a single letter followed by `:` is syntactically a valid URL
+ * scheme, so `new URL("C:\\project").protocol` is `"c:"` — non-empty, and
+ * would otherwise pass this check. The LSP spec requires a genuine
+ * `DocumentUri` (`file://...`) here; silently accepting a native path would
+ * send the language server something it cannot resolve.
+ */
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
+
 function assertAbsoluteUri(value: string, label: string): void {
+  if (WINDOWS_DRIVE_PATH.test(value)) {
+    throw new LspConfigurationError(
+      `${label} must be a URI (e.g. file:///C:/...), not a bare path.`,
+    );
+  }
   try {
     const uri = new URL(value);
     if (uri.protocol.length === 0) throw new Error("missing protocol");

@@ -80,10 +80,18 @@ documentation, licensing, provenance, and security gaps.
 - Fixed KP-027: opening a fresh `SqliteDatabase` immediately after a
   `SIGKILL`ed process held the same file could fail on Windows with a
   transient `disk I/O error` (`SQLITE_IOERR_TRUNCATE`) — a real production
-  daemon-restart-after-crash risk, not just a test artifact. Fixed with a
-  bounded, synchronous retry in the constructor for the whole
-  IOERR/BUSY/LOCKED/CANTOPEN family (ADR-016), unit tested directly against
-  the CI-observed error code.
+  daemon-restart-after-crash risk, not just a test artifact. The first fix
+  (retry the open only) failed identically on the next CI run: the IOERR came
+  from the WAL-mode pragma immediately _after_ a successful open. The revised
+  fix retries the _entire_ initialization sequence — open, pragmas, migration
+  — as one unit (ADR-016), unit tested directly against the CI-observed error
+  code and against errors that must not be masked.
+- Proactively audited every `new URL(...)` call site in the product source for
+  the same drive-letter-as-URL-scheme pattern (ADR-015) and fixed KP-028:
+  `packages/integrations/src/lsp.ts`'s `assertAbsoluteUri` accepted a Windows
+  path as a valid `rootUri`/workspace-folder URI. LSP is not yet composed into
+  the live runtime, so this had no current production path, but would have
+  broken silently the moment it was wired up on Windows.
 - Fixed KP-026, a real cross-platform defect the daemon-kill mission's first
   Windows CI run caught: `new URL("C:\\Users\\x")` succeeds with `protocol`
   `"c:"` (a single letter followed by `:` is syntactically a valid URL
@@ -113,7 +121,7 @@ documentation, licensing, provenance, and security gaps.
   approval), and `execute_command` swallowing stdout on failure so an agent
   could not see why a test runner failed.
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (92), integration (33), e2e (7), recovery
+  check:boundaries, typecheck, unit (93), integration (33), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
@@ -138,7 +146,7 @@ HEAD.
 
 ## Active validation
 
-Current full matrix: unit 92/92, integration 33/33, e2e 7/7, recovery 5/5;
+Current full matrix: unit 93/93, integration 33/33, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
 pass. The daemon-kill acceptance test (`tests/e2e/daemon-kill-mission.test.ts`)
 and the competing-daemon takeover suite

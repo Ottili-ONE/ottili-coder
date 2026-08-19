@@ -64,6 +64,11 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | Root-caused as KP-027 and fixed with a bounded, synchronous retry in `SqliteDatabase`'s constructor for the `SQLITE_IOERR`/`BUSY`/`LOCKED`/`CANTOPEN` result-code family (ADR-016) | `pnpm exec vitest run tests/unit/control-plane.test.ts` — PASS, 13/13, including two new tests proving `isTransientOpenError` retries exactly the CI-observed code (and its IOERR siblings) and never masks an unrelated or non-transient SQLite error. |
 | 2026-08-19 | Full root matrix after KP-027: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 92/92; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
+| 2026-08-19 | GitHub Actions matrix on `main` for commit `16e0f90` (first KP-027 fix — open-only retry) | FAIL — Windows failed `pnpm test:e2e` with the identical `ERR_SQLITE_ERROR errcode 1546`, proving the IOERR came from the WAL-mode pragma immediately after a successful open, not the open call itself. |
+| 2026-08-19 | Proactively audited every `new URL(...)` call site in the product source for the ADR-015 pattern | Found and fixed KP-028: `packages/integrations/src/lsp.ts`'s `assertAbsoluteUri` accepted a Windows drive-letter path (`new URL("C:\\x").protocol` is `"c:"`, non-empty). Four other call sites (`daemon-client.ts`, `daemon-process.ts`, `mcp.ts`, `server.ts`) already validate against an explicit protocol allowlist and were unaffected. |
+| 2026-08-19 | `pnpm exec vitest run tests/unit/mcp-lsp.test.ts` after the KP-028 fix | PASS — 7/7, including the new regression proving a Windows drive-letter `rootUri`/`workspaceFolders[].uri` is rejected and a genuine `file:///C:/...` URI is accepted. |
+| 2026-08-19 | Full root matrix after the revised KP-027 fix (whole-initialization retry) and KP-028: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 93/93; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+
 ## Still-required direct validation
 
 The local matrix is green, the delayed real provider/tool competing-daemon

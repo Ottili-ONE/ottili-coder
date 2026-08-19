@@ -366,4 +366,34 @@ describe("LSP integration", () => {
       }),
     ).toThrow("plug-in/module loading is disabled");
   });
+
+  // `new URL("C:\\project").protocol` is `"c:"` — non-empty — because a single
+  // letter followed by `:` is syntactically a valid URL scheme. A bare check
+  // for "protocol is non-empty" would accept a Windows path as a URI and send
+  // the language server a `rootUri`/`workspaceFolders[].uri` it cannot
+  // resolve; the LSP spec requires a genuine `file://` DocumentUri here.
+  it("rejects a Windows drive-letter path as a rootUri or workspace folder URI", () => {
+    expect(() =>
+      parseLspServerConfig({
+        command: "typescript-language-server",
+        id: "ts",
+        rootUri: String.raw`C:\project`,
+      }),
+    ).toThrow("must be a URI");
+    expect(() =>
+      parseLspServerConfig({
+        command: "typescript-language-server",
+        id: "ts",
+        rootUri: "file:///workspace",
+        workspaceFolders: [{ name: "root", uri: String.raw`C:\project` }],
+      }),
+    ).toThrow("must be a URI");
+    expect(() =>
+      parseLspServerConfig({
+        command: "typescript-language-server",
+        id: "ts",
+        rootUri: "file:///C:/project",
+      }),
+    ).not.toThrow();
+  });
 });

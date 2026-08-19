@@ -40,17 +40,52 @@ function sleepSync(milliseconds: number): void {
 }
 
 export class SqliteDatabase {
-  private readonly connection: DatabaseSync;
+  // Mutable only so a transient-error retry can discard and replace a
+  // partially-initialized connection during construction; nothing outside
+  // the constructor ever reassigns it.
+  private connection: DatabaseSync;
   private readonly migrationTargetVersion: 1 | 2 | 3 | 4 | 5;
 
   public constructor(path: string, options: SqliteDatabaseOptions = {}) {
     this.migrationTargetVersion =
       options.migrationTargetVersion ?? LATEST_SCHEMA_VERSION;
-    this.connection = SqliteDatabase.openWithRetry(path);
-    this.connection.exec("PRAGMA journal_mode = WAL");
-    this.connection.exec("PRAGMA foreign_keys = ON");
-    this.connection.exec("PRAGMA busy_timeout = 5000");
-    this.migrate();
+    this.connection = this.initializeWithRetry(path);
+  }
+
+  /**
+   * Opens the database and runs pragmas/migration as one retried unit, not
+   * just the initial open. `SQLITE_IOERR_TRUNCATE` was observed coming from
+   * the WAL-mode switch immediately after a successful open (Windows racing
+   * a just-`SIGKILL`ed process's not-yet-released handle), so the retryable
+   * window covers everything up to a fully migrated, ready connection.
+   */
+  private initializeWithRetry(path: string): DatabaseSync {
+    const maxAttempts = 8;
+    for (let attempt = 1; ; attempt += 1) {
+      let connection: DatabaseSync | undefined;
+      try {
+        connection = SqliteDatabase.openWithRetry(path);
+        this.connection = connection;
+        this.connection.exec("PRAGMA journal_mode = WAL");
+        this.connection.exec("PRAGMA foreign_keys = ON");
+        this.connection.exec("PRAGMA busy_timeout = 5000");
+        this.migrate();
+        return this.connection;
+      } catch (error: unknown) {
+        if (connection !== undefined) {
+          try {
+            connection.close();
+          } catch {
+            // The connection is being discarded regardless; a close failure
+            // here must not shadow the real error driving this retry/throw.
+          }
+        }
+        if (attempt >= maxAttempts || !isTransientOpenError(error)) {
+          throw error;
+        }
+        sleepSync(Math.min(500, 25 * 2 ** attempt));
+      }
+    }
   }
 
   private static openWithRetry(path: string): DatabaseSync {
