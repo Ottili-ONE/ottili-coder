@@ -24,10 +24,10 @@ gained real, concrete progress this pass — `ottili-coder models`/
 `ottili-coder mcp` close its literal missing-CLI-surface gap, Build/Plan/
 Debug/Ask is judged satisfied by the existing multi-agent redesign — but
 stays UNPROVEN: OAuth login and a publishable GitHub Action are genuine,
-documented, open gaps. GitHub Actions run 32269711392 (commit `e9d66c9`)
-confirmed Ubuntu/macOS/Windows all pass together, but that predates the
-`models`/`mcp` CLI addition below — CI must be re-confirmed on the new
-HEAD. `KP-032` (an unexplained `LeaseFencedError` on a doc-only commit)
+documented, open gaps. GitHub Actions run 32270519687 (commit `d299614`)
+confirmed Ubuntu/macOS/Windows all pass together on the `models`/`mcp`
+CLI addition itself.
+`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit)
 has not recurred on any run since it was first observed. The Requirement
 Ledger still has open `UNPROVEN` entries with direct final audits
 remaining.
@@ -350,7 +350,10 @@ deterministic tests are viable.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after adding
   `ottili-coder models`/`ottili-coder mcp` (unit 111/111, integration 46/46,
-  e2e 7/7, recovery 5/5) — not yet re-confirmed on GitHub Actions.
+  e2e 7/7, recovery 5/5).
+- GitHub Actions run 32270519687 (commit `d299614`, 2026-08-19) confirmed
+  Ubuntu, macOS, and Windows all pass together on the `models`/`mcp` CLI
+  addition.
 - GitHub Actions run 32269711392 (commit `e9d66c9`, 2026-08-19) confirmed
   Ubuntu, macOS, and Windows all pass together (doc-only CI-confirmation
   commit).
