@@ -28,17 +28,23 @@ new `action-smoke` CI job (ADR-023), now confirmed green end to end on a
 real runner after finding and fixing `KP-036` (a broken
 `cache-dependency-path` that the smoke test itself caught) — but stays
 UNPROVEN: interactive OAuth login is the one remaining genuine, documented,
-open gap. GitHub Actions run 32294770672 (commit `d44a583`) confirmed
-Ubuntu/macOS/Windows _and_ the new `action-smoke` job all pass together
-(not yet re-confirmed on the OCF benchmark change below). R34 (OCF token
-benchmark) is now PROVEN: three representative dataset shapes plus a real
-`cl100k_base` tokenizer comparison close `KP-010`. Investigating OCF's
-live-composition status for R34 surfaced `KP-037`: `RunContextCompiler`
-never uses OCF's codec for its actual output, deliberately not composed
-in this pass without live-model validation (ADR-024). `KP-032` (an
-unexplained `LeaseFencedError` on a doc-only commit) has not recurred on
-any run since it was first observed. The Requirement Ledger still has
-open `UNPROVEN` entries with direct final audits remaining.
+open gap. GitHub Actions run 32296536677 (commit `02a9b03`) confirmed
+Ubuntu/macOS/Windows and `action-smoke` all pass together on the OCF
+benchmark change itself. R34 (OCF token benchmark) is now PROVEN: three
+representative dataset shapes plus a real `cl100k_base` tokenizer
+comparison close `KP-010`. Investigating OCF's live-composition status for
+R34 surfaced `KP-037`: `RunContextCompiler` never uses OCF's codec for its
+actual output, deliberately not composed in this pass without live-model
+validation (ADR-024). R60 (OSS licensing/notices) is now PROVEN: the
+shipped, bundled product (`dist/apps/cli/src/main.js`,
+`dist/apps/cli/src/daemon-process.js`) has zero third-party runtime
+dependencies (Node built-ins only, confirmed by grepping the actual
+bundle, not source), and `pnpm licenses list` against the full 150-package
+devDependency tree found no copyleft license. `KP-032` (an unexplained
+`LeaseFencedError` on a doc-only commit) has not recurred on any run since
+it was first observed. The Requirement Ledger still has open `UNPROVEN`
+entries with direct final audits remaining — R61 (docs match
+implementation) is next.
 
 ## Current milestone
 
@@ -327,9 +333,21 @@ and security gaps.
   row). Relocated the interrupting prose note to after the table; `grep -c
 "^| KP-" ` confirms all 37 rows survived intact. `prettier --check` does
   not catch this class of defect (it does not reformat table structure).
+- Closed R60 (OSS licensing/notices) with direct evidence: `grep -o 'from
+"[^.][^"]*"'` against the actual bundled `dist/apps/cli/src/main.js` and
+  `dist/apps/cli/src/daemon-process.js` shows every import is a Node
+  built-in — the shipped product has zero third-party runtime
+  dependencies (every workspace `package.json`'s `dependencies` field is
+  empty). `pnpm licenses list` against the full 150-package devDependency
+  tree found no copyleft license. `THIRD_PARTY_NOTICES.md`'s
+  "Dependencies" section now states this directly instead of deferring to
+  a future audit; RK-001 moved active → mitigated.
 
 ## Open milestones
 
+- Perform the R61 documentation-to-implementation audit (README.md and
+  every `docs/architecture/*.md` file against current source) — the next
+  item.
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
@@ -499,11 +517,10 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the OCF benchmark expansion (R34/`KP-010` closed, `KP-037`
-recorded, a pre-existing `KNOWN_PROBLEMS.md` table-fragmentation defect
-fixed in passing), re-confirm cross-platform CI on the new HEAD, then work
-`NEXT_ACTIONS.md` in order starting with fresh documentation-to-implementation
-(R61), dependency-license (R60), provenance, and security audits — R61
-should also reconcile `KP-033` (the `Checkpoint`/`CheckpointListResponse`
-protocol type mismatch) and check the `docs/architecture/*.md` links
-`README.md` references actually resolve.
+Commit and push the R60 closure (`THIRD_PARTY_NOTICES.md` rewritten with
+the real dependency-license audit findings), re-confirm cross-platform CI
+on the new HEAD, then work `NEXT_ACTIONS.md` in order starting with the
+R61 documentation-to-implementation audit (README.md and every
+`docs/architecture/*.md` file against current source; also reconcile
+`KP-033`, the `Checkpoint`/`CheckpointListResponse` protocol type
+mismatch, alongside it) and a provenance/security audit pass.

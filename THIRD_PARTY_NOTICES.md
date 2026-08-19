@@ -46,7 +46,31 @@ the audit and is not embedded in this product.
 
 ## Dependencies
 
-Development dependencies are declared in package.json and pinned in
-pnpm-lock.yaml. Their license obligations must be reviewed as part of a
-release artifact audit. This notice does not replace the dependency metadata
-or any license files distributed by those dependencies.
+Every package's `dependencies` field (root and every workspace member) is
+empty; the only cross-package edges are `workspace:*` links between this
+project's own packages. Confirmed directly, not assumed: `grep -o 'from
+"[^.][^"]*"' dist/apps/cli/src/main.js` and the same against
+`dist/apps/cli/src/daemon-process.js` (the daemon, the heaviest runtime
+piece, including its SQLite control plane) show every import is a Node
+built-in (`node:*`) — the bundled, shipped product has **zero third-party
+runtime dependencies**. Nothing here needs redistribution-license
+obligations tracked, because nothing third-party ships.
+
+All third-party code in this repository is a `devDependency` — build
+tooling (TypeScript, esbuild, tsx), test tooling (vitest), linting/
+formatting (eslint, prettier), and one benchmark-only tokenizer
+(`tiktoken`, `packages/context-format`'s own devDependency, used solely by
+its non-shipped `bench/` script — ADR-024). `pnpm licenses list` against
+the full installed tree (150 packages across every workspace member) found
+no copyleft license: MIT (116), Apache-2.0 (14), BSD-2-Clause (6),
+BSD-3-Clause (2), ISC (8), MPL-2.0 (2, both from `vitest`'s `vite`→
+`lightningcss` chain — file-level copyleft, dev-tool-only, never bundled),
+Python-2.0 (1, from `eslint`'s `js-yaml`→`argparse` chain), and
+BlueOak-1.0.0 (1, `minimatch`) — all OSI-approved and permissive-compatible.
+Full raw output is reproducible with `pnpm licenses list`.
+
+This is a point-in-time audit (2026-08-19, commit range ending `02a9b03`);
+re-run it whenever dependencies change materially, and definitely again
+immediately before any release artifact is published, since `pnpm add`
+between now and then could introduce a new transitive package this
+statement has not seen.
