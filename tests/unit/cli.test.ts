@@ -241,6 +241,92 @@ describe("thin CLI client", () => {
   });
 });
 
+describe("models command", () => {
+  it("reports every provider kind's credential status without a daemon", async () => {
+    const output = new BufferWriter();
+    const exit = await runCli(["models", "--json"], {
+      environment: { ANTHROPIC_API_KEY: "a", OTTILI_PROVIDER: "anthropic" },
+      stdout: output,
+    });
+    expect(exit).toBe(0);
+    const report = JSON.parse(output.text()) as {
+      selectedKind: string;
+      providers: readonly {
+        kind: string;
+        configured: boolean;
+        selected: boolean;
+      }[];
+    };
+    expect(report.selectedKind).toBe("anthropic");
+    expect(report.providers).toContainEqual(
+      expect.objectContaining({
+        configured: true,
+        kind: "anthropic",
+        selected: true,
+      }),
+    );
+    expect(report.providers).toContainEqual(
+      expect.objectContaining({
+        configured: false,
+        kind: "openai",
+        selected: false,
+      }),
+    );
+  });
+
+  it("reports no selection in plain text when OTTILI_PROVIDER is unset", async () => {
+    const output = new BufferWriter();
+    const exit = await runCli(["models"], { environment: {}, stdout: output });
+    expect(exit).toBe(0);
+    expect(output.text()).toContain(
+      "No provider selected. Set OTTILI_PROVIDER",
+    );
+  });
+});
+
+describe("mcp command", () => {
+  it("reports configured MCP and LSP servers from the same declarative env vars the daemon reads", async () => {
+    const output = new BufferWriter();
+    const exit = await runCli(["mcp", "--json"], {
+      environment: {
+        OTTILI_LSP_SERVERS: JSON.stringify([
+          { command: "typescript-language-server", id: "ts" },
+        ]),
+        OTTILI_MCP_SERVERS: JSON.stringify([
+          { id: "search", transport: { command: "search-mcp", kind: "stdio" } },
+        ]),
+      },
+      stdout: output,
+    });
+    expect(exit).toBe(0);
+    const report = JSON.parse(output.text()) as {
+      mcpServers: readonly { id: string }[];
+      lspServers: readonly { id: string }[];
+    };
+    expect(report.mcpServers).toEqual([
+      expect.objectContaining({ id: "search" }),
+    ]);
+    expect(report.lspServers).toEqual([expect.objectContaining({ id: "ts" })]);
+  });
+
+  it("reports nothing configured rather than a daemon round trip when no servers are set", async () => {
+    const output = new BufferWriter();
+    const exit = await runCli(["mcp"], { environment: {}, stdout: output });
+    expect(exit).toBe(0);
+    expect(output.text()).toContain("No MCP or LSP servers configured");
+  });
+
+  it("surfaces malformed OTTILI_MCP_SERVERS as a usage error, not a crash", async () => {
+    const stderr = new BufferWriter();
+    const exit = await runCli(["mcp"], {
+      environment: { OTTILI_MCP_SERVERS: "not json" },
+      stderr,
+    });
+    expect(exit).toBe(2);
+    expect(stderr.text()).toContain("OTTILI_MCP_SERVERS is not valid JSON");
+  });
+});
+
 describe("daemon descriptor discovery", () => {
   it("atomically persists only daemon discovery metadata and probes readiness", async () => {
     const configDirectory = await mkdtemp(join(tmpdir(), "ottili-cli-daemon-"));

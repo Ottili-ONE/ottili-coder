@@ -2,7 +2,13 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { importLegacyConfig, previewLegacyConfig } from "@ottili/integrations";
+import {
+  importLegacyConfig,
+  parseLspServerConfig,
+  parseMcpServerConfig,
+  previewLegacyConfig,
+  type McpServerConfig,
+} from "@ottili/integrations";
 import type {
   Agent,
   Approval,
@@ -12,6 +18,12 @@ import type {
   RunEvent,
   RunId,
 } from "@ottili/protocol";
+import {
+  DEFAULT_ENDPOINTS,
+  DEFAULT_KEY_VARIABLES,
+  PROVIDER_KINDS,
+  type LspServerTemplate,
+} from "@ottili/runtime";
 import { OttiliClientError } from "@ottili/sdk";
 
 import {
@@ -138,6 +150,12 @@ export async function executeCli(
     case "doctor":
       await executeDoctor(rest, context);
       return;
+    case "models":
+      await executeModels(rest, context);
+      return;
+    case "mcp":
+      await executeMcp(rest, context);
+      return;
     case "version":
     case "--version":
     case "-v":
@@ -172,6 +190,8 @@ Usage:
   ottili-coder approvals resolve <run-id> <approval-id> <approved|rejected> [--resolver <id>] [--json]
   ottili-coder config <preview|import> [--home <path>] [--project <path>] [--overwrite] [--json]
   ottili-coder doctor [--json]
+  ottili-coder models [--json]
+  ottili-coder mcp [--json]
 
 Connection options:
   --daemon <url>          Override the daemon endpoint for this invocation.
@@ -672,6 +692,149 @@ async function executeDoctor(
     );
   if (daemon.version !== undefined)
     writeLine(context.stdout, `Protocol: ${daemon.version}`);
+}
+
+interface ModelProviderReport {
+  readonly kind: (typeof PROVIDER_KINDS)[number];
+  readonly credentialEnv: string;
+  readonly configured: boolean;
+  readonly endpoint?: string;
+  readonly selected: boolean;
+}
+
+/**
+ * Reports the provider kinds the daemon knows how to build and whether each
+ * has a credential in this environment — a purely local check, since the
+ * choice is made by `OTTILI_PROVIDER`/credential env vars the daemon reads at
+ * its own startup, not by daemon state.
+ */
+async function executeModels(
+  tokens: readonly string[],
+  context: CliExecutionContext,
+): Promise<void> {
+  const options = parseOptions(tokens, {
+    boolean: commonOutputOptionNames,
+    values: new Set(),
+  });
+  if (options.positionals.length > 0)
+    throw new CliUsageError("models does not accept positional arguments.");
+  const selectedKind = context.environment.OTTILI_PROVIDER;
+  const providers: readonly ModelProviderReport[] = PROVIDER_KINDS.map(
+    (kind) => {
+      const credentialEnv = DEFAULT_KEY_VARIABLES[kind];
+      const endpoint = DEFAULT_ENDPOINTS[kind];
+      return {
+        configured: (context.environment[credentialEnv] ?? "").length > 0,
+        credentialEnv,
+        ...(endpoint === undefined ? {} : { endpoint }),
+        kind,
+        selected: kind === selectedKind,
+      };
+    },
+  );
+  if (hasFlag(options, "json")) {
+    writeJson(context.stdout, { providers, selectedKind });
+    return;
+  }
+  writeLine(
+    context.stdout,
+    selectedKind === undefined
+      ? "No provider selected. Set OTTILI_PROVIDER before starting the daemon."
+      : `Selected provider: ${selectedKind}`,
+  );
+  for (const provider of providers) {
+    const marker = provider.selected ? "*" : " ";
+    const credential = `${provider.credentialEnv} (${provider.configured ? "set" : "not set"})`;
+    const endpoint =
+      provider.endpoint === undefined ? "" : `, default ${provider.endpoint}`;
+    writeLine(
+      context.stdout,
+      `${marker} ${provider.kind} — ${credential}${endpoint}`,
+    );
+  }
+}
+
+function parseConfiguredMcpServers(
+  configured: string | undefined,
+): readonly McpServerConfig[] {
+  if (configured === undefined || configured.trim().length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configured);
+  } catch (error: unknown) {
+    throw new CliUsageError(
+      `OTTILI_MCP_SERVERS is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!Array.isArray(parsed))
+    throw new CliUsageError("OTTILI_MCP_SERVERS must be a JSON array.");
+  return parsed.map((entry) =>
+    parseMcpServerConfig(
+      typeof entry === "object" && entry !== null && !("desiredState" in entry)
+        ? { ...entry, desiredState: "connected" }
+        : entry,
+    ),
+  );
+}
+
+function parseConfiguredLspServers(
+  configured: string | undefined,
+): readonly LspServerTemplate[] {
+  if (configured === undefined || configured.trim().length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configured);
+  } catch (error: unknown) {
+    throw new CliUsageError(
+      `OTTILI_LSP_SERVERS is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!Array.isArray(parsed))
+    throw new CliUsageError("OTTILI_LSP_SERVERS must be a JSON array.");
+  return parsed.map((entry) => parseLspServerConfig(entry));
+}
+
+/**
+ * Reports the MCP/LSP servers declared through `OTTILI_MCP_SERVERS`/
+ * `OTTILI_LSP_SERVERS` — the same opt-in, declarative-only configuration the
+ * daemon reads at its own startup (`daemon-process.ts`). This is a
+ * configuration report, not live connection status: whether a declared
+ * server is actually reachable is only known inside the running daemon
+ * process, which has no API surface for it yet.
+ */
+async function executeMcp(
+  tokens: readonly string[],
+  context: CliExecutionContext,
+): Promise<void> {
+  const options = parseOptions(tokens, {
+    boolean: commonOutputOptionNames,
+    values: new Set(),
+  });
+  if (options.positionals.length > 0)
+    throw new CliUsageError("mcp does not accept positional arguments.");
+  const mcpServers = parseConfiguredMcpServers(
+    context.environment.OTTILI_MCP_SERVERS,
+  );
+  const lspServers = parseConfiguredLspServers(
+    context.environment.OTTILI_LSP_SERVERS,
+  );
+  if (hasFlag(options, "json")) {
+    writeJson(context.stdout, { lspServers, mcpServers });
+    return;
+  }
+  if (mcpServers.length === 0 && lspServers.length === 0) {
+    writeLine(
+      context.stdout,
+      "No MCP or LSP servers configured. Set OTTILI_MCP_SERVERS / OTTILI_LSP_SERVERS (JSON arrays) before starting the daemon.",
+    );
+    return;
+  }
+  for (const server of mcpServers) {
+    writeLine(context.stdout, `mcp  ${server.id} (${server.transport.kind})`);
+  }
+  for (const server of lspServers) {
+    writeLine(context.stdout, `lsp  ${server.id} — ${server.command}`);
+  }
 }
 
 async function attachRun(

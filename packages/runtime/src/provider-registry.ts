@@ -4,13 +4,15 @@ import { GoogleGeminiTurnProvider } from "./gemini.js";
 import { OpenAiCompatibleTurnProvider } from "./openai.js";
 import { ProviderFailure, type TurnProvider } from "./provider.js";
 
-export type ProviderKind =
-  | "anthropic"
-  | "google"
-  | "openai"
-  | "openai-compatible"
-  | "openrouter"
-  | "ottili";
+export const PROVIDER_KINDS = [
+  "anthropic",
+  "google",
+  "openai",
+  "openai-compatible",
+  "openrouter",
+  "ottili",
+] as const;
+export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 export interface ProviderConfig {
   readonly id?: string;
@@ -43,7 +45,9 @@ export interface CreateProviderOptions {
   readonly onFailover?: (attempt: FailoverAttempt) => void;
 }
 
-const DEFAULT_ENDPOINTS: Readonly<Record<ProviderKind, string | undefined>> = {
+export const DEFAULT_ENDPOINTS: Readonly<
+  Record<ProviderKind, string | undefined>
+> = {
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
   openai: "https://api.openai.com/v1",
@@ -52,7 +56,8 @@ const DEFAULT_ENDPOINTS: Readonly<Record<ProviderKind, string | undefined>> = {
   ottili: "https://ai.ottili.one/api/v1",
 };
 
-const DEFAULT_KEY_VARIABLES: Readonly<Record<ProviderKind, string>> = {
+/** The credential environment variable each kind reads by default, for CLI introspection (`ottili-coder models`) as well as internal resolution. */
+export const DEFAULT_KEY_VARIABLES: Readonly<Record<ProviderKind, string>> = {
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_API_KEY",
   openai: "OPENAI_API_KEY",

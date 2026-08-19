@@ -18,6 +18,7 @@ import {
   GitCheckpointRestorer,
   GitWorktreeProvisioner,
   LspServerManager,
+  PROVIDER_KINDS,
   ProviderConfigurationError,
   ProviderFailure,
   RunCoordinator,
@@ -47,15 +48,6 @@ class UnconfiguredProvider implements TurnProvider {
     throw new ProviderFailure("authentication", this.reason);
   }
 }
-
-const PROVIDER_KINDS: readonly ProviderKind[] = [
-  "anthropic",
-  "google",
-  "openai",
-  "openai-compatible",
-  "openrouter",
-  "ottili",
-];
 
 function providerKindFromEnvironment(): ProviderKind | undefined {
   const configured = process.env.OTTILI_PROVIDER;

@@ -19,21 +19,29 @@ backend contracts) are now proven with direct evidence — all moved
 UNPROVEN → PROVEN except R48, which stays UNPROVEN by deliberate,
 documented decision (`KP-035`/ADR-022: composing `LocalExecutionBackend`
 into `execute_command`'s real dispatch path needs a dependency-graph
-change out of proportion to this increment). GitHub Actions run
-32269246053 (commit `e5ce78e`) confirmed Ubuntu/macOS/Windows all pass
-together on the R45–R49 change itself. `KP-032` (an unexplained
-`LeaseFencedError` on a doc-only commit) has not recurred on any run
-since it was first observed. The Requirement Ledger still has open
-`UNPROVEN` entries with direct final audits remaining.
+change out of proportion to this increment). R51 (legacy feature parity)
+gained real, concrete progress this pass — `ottili-coder models`/
+`ottili-coder mcp` close its literal missing-CLI-surface gap, Build/Plan/
+Debug/Ask is judged satisfied by the existing multi-agent redesign — but
+stays UNPROVEN: OAuth login and a publishable GitHub Action are genuine,
+documented, open gaps. GitHub Actions run 32269711392 (commit `e9d66c9`)
+confirmed Ubuntu/macOS/Windows all pass together, but that predates the
+`models`/`mcp` CLI addition below — CI must be re-confirmed on the new
+HEAD. `KP-032` (an unexplained `LeaseFencedError` on a doc-only commit)
+has not recurred on any run since it was first observed. The Requirement
+Ledger still has open `UNPROVEN` entries with direct final audits
+remaining.
 
 ## Current milestone
 
 M11: all previously-isolated capability primitives are composed into the
 live runtime (MCP/LSP/worktrees/checkpoints, including workspace-only
 restore), KP-031 is fixed, R54/R56's specific coverage gaps are closed,
-and R45–R49 (provider/backend proof) are closed with R48 explicitly and
-honestly deferred. Decompose `store.ts` further if warranted, then close
-legacy-parity, documentation, licensing, provenance, and security gaps.
+R45–R49 (provider/backend proof) are closed with R48 explicitly and
+honestly deferred, and R51's literal CLI-surface gap is closed. Build the
+remaining R51 gap (a publishable GitHub Action), decompose `store.ts`
+further if warranted, then close documentation, licensing, provenance,
+and security gaps.
 
 ## Completed milestones
 
@@ -261,16 +269,29 @@ legacy-parity, documentation, licensing, provenance, and security gaps.
 - Current automated root matrix passes again after R45–R49: unit (106),
   integration (46), e2e (7), recovery (5), plus all remaining listed
   commands.
+- Audited R51 against `research/PORT_MATRIX.md`'s `PORT`-classified rows by
+  direct inspection: added `ottili-coder models`/`ottili-coder mcp` (new,
+  purely local, no daemon round trip), closing the literal missing-CLI-surface
+  gap; exported `PROVIDER_KINDS`/`DEFAULT_KEY_VARIABLES`/`DEFAULT_ENDPOINTS`
+  from `provider-registry.ts` for reuse instead of duplicating them. Judged
+  Build/Plan/Debug/Ask satisfied by redesign (`AgentRole` +
+  `--permission-mode` already cover the intent through vNext's multi-agent
+  design). Left OAuth login and a publishable GitHub Action genuinely open —
+  real, bounded gaps, not fake-closed.
+- Current automated root matrix passes again after `models`/`mcp`: unit
+  (111), integration (46), e2e (7), recovery (5), plus all remaining listed
+  commands.
 
 ## Open milestones
 
+- Build a publishable GitHub Action wrapping the headless Run API (R51's
+  remaining concrete gap).
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
   real dispatch path) as its own scoped increment, likely alongside
   `KP-024`'s `store.ts` module-boundary cleanup, once a dependency-graph
   decision is made.
-- Audit legacy feature parity (R51).
 - Close benchmarking, documentation, licensing, provenance, and security gaps
   (R34, R60, R61, `KP-010`).
 - Re-confirm a green Ubuntu/macOS/Windows GitHub Actions matrix on the current
@@ -278,16 +299,16 @@ legacy-parity, documentation, licensing, provenance, and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. R45–R49 (the top item
-in the prior `NEXT_ACTIONS.md`) is committed and locally validated. Resume
-with the ordered work in `NEXT_ACTIONS.md`, starting with pushing this
-change and re-confirming cross-platform CI on the new HEAD.
+No specific source edit is active in this checkpoint. The `models`/`mcp` CLI
+addition (part of R51) is committed and locally validated. Resume with the
+ordered work in `NEXT_ACTIONS.md`, starting with pushing this change and
+re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 106/106, integration 46/46, e2e 7/7, recovery
+Current full matrix: unit 111/111, integration 46/46, e2e 7/7, recovery
 5/5; lint/format/check:eol/check:boundaries/typecheck/build/bench/package
-smoke pass, all re-run after the R45–R49 additions. The daemon-kill
+smoke pass, all re-run after the `models`/`mcp` additions. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
 competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`),
@@ -295,13 +316,14 @@ competing-daemon takeover suite
 `tests/integration/worktree-composition.test.ts`,
 `tests/integration/checkpoint-composition.test.ts`,
 `tests/integration/checkpoint-restore.test.ts`,
-`tests/integration/sse-reconnect.test.ts`, and
-`tests/integration/cli-daemon-lifecycle.test.ts` are unchanged and still
-pass. New this pass: `tests/unit/providers.test.ts` gained 4 tests (BYOK
-full round trip, managed-provider round trip, per-turn token rotation,
-rejected-supplier durable failure) and `tests/unit/integrations.test.ts`
-gained 5 tests (local backend full lifecycle + abort-via-signal, remote
-backend full delegation, hybrid local-preferred + fallback-to-remote). The
+`tests/integration/sse-reconnect.test.ts`,
+`tests/integration/cli-daemon-lifecycle.test.ts`,
+`tests/unit/providers.test.ts`, and `tests/unit/integrations.test.ts` are
+unchanged and still pass. New this pass: `tests/unit/cli.test.ts` gained 7
+tests (`models` credential/selection report in both text and JSON forms;
+`mcp` configured-server report, empty-configuration case, and a
+malformed-JSON usage-error case) — also manually smoke-tested against the
+real built binary (`node dist/apps/cli/src/main.js models`/`mcp`). The
 daemon-kill mission's first Windows CI run also caught a real
 cross-platform defect (KP-026) that no other platform or test could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
@@ -325,6 +347,13 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after adding
+  `ottili-coder models`/`ottili-coder mcp` (unit 111/111, integration 46/46,
+  e2e 7/7, recovery 5/5) — not yet re-confirmed on GitHub Actions.
+- GitHub Actions run 32269711392 (commit `e9d66c9`, 2026-08-19) confirmed
+  Ubuntu, macOS, and Windows all pass together (doc-only CI-confirmation
+  commit).
 - GitHub Actions run 32269246053 (commit `e5ce78e`, 2026-08-19) confirmed
   Ubuntu, macOS, and Windows all pass together on the R45–R49 change. The
   immediately preceding commit (`205d5da`, the R45–R49 source change itself)
@@ -393,9 +422,8 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the R45–R49 change (managed-auth token wiring, BYOK/managed
-provider round trips, dead-code deletion, remote/hybrid backend contracts),
-re-confirm the cross-platform CI matrix on the new HEAD, then work
-`NEXT_ACTIONS.md` in order starting with the legacy Ottili Coder feature
-matrix audit (R51). Rerun all final validation after the final source
-change.
+Commit and push the `models`/`mcp` CLI addition, re-confirm the
+cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
+order starting with a publishable GitHub Action wrapping the headless Run
+API (R51's remaining concrete gap). Rerun all final validation after the
+final source change.
