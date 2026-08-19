@@ -60,11 +60,16 @@ runs:
     - uses: pnpm/action-setup@v4
       with:
         version: 11.15.1
+    # No dependency cache here: `actions/setup-node`'s `cache-dependency-path`
+    # rejects any resolved path containing a `.`/`..` segment, and
+    # `github.action_path` resolves to exactly that for the self-referential
+    # `uses: ./` case this repo's own action-smoke job exercises (observed
+    # directly in CI: "Invalid pattern '..././/pnpm-lock.yaml'"). A consumer
+    # invocation is a cold VM either way, so an uncached install is a small,
+    # predictable cost next to skipping caching correctness altogether.
     - uses: actions/setup-node@v4
       with:
         node-version: 24
-        cache: pnpm
-        cache-dependency-path: ${{ github.action_path }}/pnpm-lock.yaml
 
     - name: Build the bundled daemon/CLI
       shell: bash
