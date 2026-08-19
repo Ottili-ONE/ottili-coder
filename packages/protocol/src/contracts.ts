@@ -219,15 +219,15 @@ export interface Milestone extends Timestamps {
   readonly taskIds: readonly TaskId[];
 }
 
-export interface Checkpoint extends Timestamps {
+export interface Checkpoint {
   readonly id: CheckpointId;
   readonly runId: RunId;
   readonly sequence: number;
   readonly label: string;
   readonly reason: string;
-  readonly workspaceRevision?: string;
-  readonly contextSnapshotId?: ContextSnapshotId;
-  readonly artifactIds: readonly ArtifactId[];
+  readonly manifest: JsonObject;
+  readonly workspaceRef?: string;
+  readonly createdAt: IsoTimestamp;
 }
 
 export interface Requirement extends Timestamps {

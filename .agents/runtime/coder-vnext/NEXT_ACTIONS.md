@@ -23,25 +23,25 @@ real `cl100k_base` tokenizer comparison, closing R34/`KP-010` and finding
 deliberately not attempted without live-model validation); and closing R60
 by confirming directly (grepping the actual shipped bundle, not source)
 that the product has zero third-party runtime dependencies, plus a full
-`pnpm licenses list` audit finding no copyleft license — were
-implemented/fixed with direct regressions
-(R12/R17/R18/R22/R23/R34/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R60/R66).
-GitHub Actions run 32296536677 (commit `02a9b03`) confirmed Ubuntu, macOS,
-Windows, and `action-smoke` all pass together on the OCF benchmark change;
-the R60 doc-only change below has not yet been re-confirmed on CI. Continue
-in this order; do not declare `TRUE_COMPLETE` while any item remains open.
+`pnpm licenses list` audit finding no copyleft license; and closing R61 —
+a general-purpose agent audited README.md and every `docs/architecture/*.md`
+file against current source claim by claim, found and fixed 6 real
+discrepancies (a missing CLI command, a nonexistent type name, a doc
+describing the wrong — uninstantiated — restore mechanism, three missing
+protocol routes/SDK methods), and `KP-033`'s protocol type mismatch was
+reconciled alongside it (`Checkpoint` redefined to structurally match
+`CheckpointRecord` exactly) — were implemented/fixed with direct
+regressions
+(R12/R17/R18/R22/R23/R34/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R60/R61/R66).
+GitHub Actions run 32297161682 (commit `476a027`) confirmed Ubuntu, macOS,
+Windows, and `action-smoke` all pass together on the R60 closure; the R61 +
+KP-033 change below has not yet been pushed/re-confirmed on CI. Continue in
+this order; do not declare `TRUE_COMPLETE` while any item remains open.
 
-1. Perform the R61 documentation-to-implementation audit: README.md and
-   every `docs/architecture/*.md` file against current source. Reconcile
-   `KP-033` (the `Checkpoint`/`CheckpointListResponse` protocol types do not
-   match `CheckpointRecord`'s actual shape) alongside it. `docs/architecture/OCF.md`
-   was already found to reference the wrong benchmark command while closing
-   R34 — a small, real, already-fixed instance of exactly the drift R61
-   exists to catch; check the rest of that directory the same way.
-2. Perform a fresh provenance and security audit pass on the final
+1. Perform a fresh provenance and security audit pass on the final
    worktree (R01/R05 provenance already has direct evidence from this
    session's work; a dedicated security-review pass has not run).
-3. Rerun the full root matrix (`pnpm install --frozen-lockfile`, lint,
+2. Rerun the full root matrix (`pnpm install --frozen-lockfile`, lint,
    format:check, check:eol, check:boundaries, typecheck, test, test:integration,
    test:recovery, test:e2e, build, test:package, bench) plus a re-confirmed
    green cross-platform GitHub Actions matrix (including `action-smoke`)

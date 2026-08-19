@@ -31,17 +31,30 @@ not assume a clean worktree.
 
 ## Transactional restore
 
-CheckpointService is generic over the durable state and workspace lifecycle:
+Two restore mechanisms exist at different layers; only one is reachable
+through the daemon API and CLI today.
 
-1. Load checkpoint state and prepare workspace restore.
-2. Capture a pre-restore workspace fallback.
-3. Restore workspace and durable state.
-4. Confirm completion or roll back both pieces.
+`GitCheckpointRestorer` (`packages/runtime/src/checkpoint-restore.ts`) is the
+live path behind `POST /v1/runs/:id/checkpoints/:checkpointId/restore` and
+`ottili-coder checkpoints restore <run-id> <checkpoint-id>`. It is
+deliberately scoped to the workspace only: it captures its own undoable
+pre-restore Git snapshot, then applies the checkpoint's snapshot via
+`GitService.restoreWorkspaceSnapshot`. The durable Task/Agent Graph and event
+history are left untouched — restoring reverts files, not the mission's
+recorded progress. The route refuses (400) unless the Run is `paused`,
+refuses (404) an unknown checkpoint, and refuses (501) if the daemon has no
+restorer configured.
 
-If a later restore stage fails, it attempts to restore both the workspace
-fallback and the original durable state. The result reports whether rollback
-succeeded. A rollback failure is surfaced as a severe recovery result, not
-silently ignored.
+`CheckpointService` (`packages/recovery/src/checkpoint.ts`) is a richer,
+independently tested primitive generic over both durable state and workspace
+lifecycle — capture, pre-restore fallback, restore both pieces, confirm or
+roll back both on failure, with rollback failure surfaced as a severe
+recovery result rather than silently ignored. It is not currently
+instantiated by the daemon composition root; nothing in the reachable
+HTTP/CLI surface calls it. Extending checkpoint restore to full
+point-in-time Task/Agent Graph reconstruction (not just files) would be the
+natural use for it, but that is a materially larger feature than the current
+workspace-only restore and has not been built.
 
 ## Daemon restart
 

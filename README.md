@@ -104,6 +104,7 @@ run status|pause|resume|cancel <run-id>
 daemon start|status|stop|restart
 agents list <run-id>
 checkpoints list <run-id>
+checkpoints restore <run-id> <checkpoint-id>
 approvals list <run-id>
 approvals resolve <run-id> <approval-id> <approved|rejected> [--resolver <id>]
 config preview|import

@@ -40,11 +40,18 @@ shipped, bundled product (`dist/apps/cli/src/main.js`,
 `dist/apps/cli/src/daemon-process.js`) has zero third-party runtime
 dependencies (Node built-ins only, confirmed by grepping the actual
 bundle, not source), and `pnpm licenses list` against the full 150-package
-devDependency tree found no copyleft license. `KP-032` (an unexplained
-`LeaseFencedError` on a doc-only commit) has not recurred on any run since
-it was first observed. The Requirement Ledger still has open `UNPROVEN`
-entries with direct final audits remaining — R61 (docs match
-implementation) is next.
+devDependency tree found no copyleft license. R61 (docs match
+implementation) is now PROVEN: a full claim-by-claim audit against current
+source found and fixed 6 real discrepancies (README.md's missing
+`checkpoints restore`; `RUNTIME.md`'s nonexistent `ProviderAdapter` type;
+`RECOVERY.md` describing the uninstantiated `CheckpointService` as the
+operative restore mechanism instead of the actually-live
+`GitCheckpointRestorer`; `PROTOCOL.md` missing three routes and three SDK
+methods) — the other seven architecture docs were checked and found
+accurate. `KP-032` (an unexplained `LeaseFencedError` on a doc-only
+commit) has not recurred on any run since it was first observed. The
+Requirement Ledger still has open `UNPROVEN` entries with direct final
+audits remaining — a provenance/security audit pass is next.
 
 ## Current milestone
 
@@ -342,12 +349,25 @@ and security gaps.
   tree found no copyleft license. `THIRD_PARTY_NOTICES.md`'s
   "Dependencies" section now states this directly instead of deferring to
   a future audit; RK-001 moved active → mitigated.
+- Closed R61 (docs match implementation): a general-purpose agent audited
+  README.md and every `docs/architecture/*.md` file against current
+  source claim by claim (grep/read citation per claim, not skimmed).
+  Found and fixed 6 real discrepancies — README.md's CLI list missing
+  `checkpoints restore`; `RUNTIME.md` referencing a nonexistent
+  `ProviderAdapter` type (real contract: `TurnProvider`); `RECOVERY.md`
+  describing `CheckpointService` (confirmed uninstantiated outside its
+  own file/tests) as the operative restore mechanism, rewritten to
+  accurately describe both it and the actually-live workspace-only
+  `GitCheckpointRestorer`; `PROTOCOL.md` missing the checkpoint-restore
+  route, `GET .../agents/:agentId/events`, `POST /v1/daemon/shutdown`,
+  and three SDK methods from its own description. AGENTS.md, CONTEXT.md,
+  LONG_HORIZON.md, OVERVIEW.md, PERSISTENCE.md, and SECURITY.md were
+  checked and found accurate.
 
 ## Open milestones
 
-- Perform the R61 documentation-to-implementation audit (README.md and
-  every `docs/architecture/*.md` file against current source) — the next
-  item.
+- Perform a provenance/security audit pass on the final worktree — the
+  next item.
 - Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
   opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Resolve `KP-035` (compose `LocalExecutionBackend` into `execute_command`'s
@@ -419,10 +439,16 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- GitHub Actions run 32297161682 (commit `476a027`, 2026-08-19) confirmed
+  Ubuntu, macOS, Windows, and `action-smoke` all pass together on the R60
+  closure. The R61 documentation fix (README.md,
+  `docs/architecture/{RUNTIME,RECOVERY,PROTOCOL}.md`) is doc-only —
+  `pnpm run format:check`/`check:eol`/`lint`/`typecheck` all PASS locally;
+  not yet pushed/re-confirmed on GitHub Actions as of this checkpoint.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after expanding
   the OCF benchmark for R34/`KP-010` (unit 111/111, integration 46/46, e2e
-  7/7, recovery 5/5) — not yet re-confirmed on GitHub Actions.
+  7/7, recovery 5/5).
 - GitHub Actions run 32294770672 (commit `d44a583`, 2026-08-19) confirmed
   Ubuntu, macOS, Windows, _and_ the new `action-smoke` job all pass
   together. The job log shows `action.yml` ran its full real sequence:
@@ -517,10 +543,8 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the R60 closure (`THIRD_PARTY_NOTICES.md` rewritten with
-the real dependency-license audit findings), re-confirm cross-platform CI
-on the new HEAD, then work `NEXT_ACTIONS.md` in order starting with the
-R61 documentation-to-implementation audit (README.md and every
-`docs/architecture/*.md` file against current source; also reconcile
-`KP-033`, the `Checkpoint`/`CheckpointListResponse` protocol type
-mismatch, alongside it) and a provenance/security audit pass.
+Commit and push the R61 documentation audit (6 doc fixes across README.md/
+RUNTIME.md/RECOVERY.md/PROTOCOL.md, plus `KP-033`'s protocol type
+reconciliation), re-confirm cross-platform CI on the new HEAD, then work
+`NEXT_ACTIONS.md` in order starting with a provenance/security audit
+pass.

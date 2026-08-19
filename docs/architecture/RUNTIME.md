@@ -9,7 +9,7 @@ does not hold durable truth in a JavaScript promise or chat transcript:
 2. The runtime reads the Mission, Run, Goal, and coordinator Agent from the
    control plane.
 3. It creates a durable SessionEpoch and records turn-started.
-4. It invokes a ProviderAdapter through AgentTurnEngine.
+4. It invokes a TurnProvider through AgentTurnEngine.
 5. Before every tool invocation it records a durable tool intent. It records a
    success or failure result after execution.
 6. It records usage and assistant output through fenced events.

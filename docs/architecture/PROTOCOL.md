@@ -29,22 +29,25 @@ treated as a completion signal.
 
 ## Routes
 
-| Method | Route                                 | Purpose                                                                        |
-| ------ | ------------------------------------- | ------------------------------------------------------------------------------ |
-| GET    | /v1/health                            | Liveness and protocol version.                                                 |
-| GET    | /v1/ready                             | Daemon readiness.                                                              |
-| GET    | /v1/version                           | Server and protocol versions.                                                  |
-| POST   | /v1/runs                              | Create a Mission, Run, initial Goal, coordinator Agent, and continuation.      |
-| GET    | /v1/runs                              | List Runs, optionally limited or status-filtered.                              |
-| GET    | /v1/runs/:runId                       | Read Run detail, agents, current Goal, and requirements.                       |
-| POST   | /v1/runs/:runId/commands              | Pause, resume, or cancel with an idempotency key.                              |
-| POST   | /v1/runs/:runId/steering              | Persist steering input as an event.                                            |
-| GET    | /v1/runs/:runId/agents                | List durable Agents.                                                           |
-| GET    | /v1/runs/:runId/checkpoints           | List persisted checkpoint metadata.                                            |
-| GET    | /v1/runs/:runId/approvals             | Read durable approval records.                                                 |
-| POST   | /v1/runs/:runId/approvals/:approvalId | Resolve one pending approval as approved or rejected with a resolver identity. |
-| GET    | /v1/runs/:runId/events                | Read events after a sequence number.                                           |
-| GET    | /v1/runs/:runId/events/stream         | Stream durable events through SSE.                                             |
+| Method | Route                                             | Purpose                                                                        |
+| ------ | ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| GET    | /v1/health                                        | Liveness and protocol version.                                                 |
+| GET    | /v1/ready                                         | Daemon readiness.                                                              |
+| GET    | /v1/version                                       | Server and protocol versions.                                                  |
+| POST   | /v1/daemon/shutdown                               | Cooperative shutdown, gated on the daemon's own instance identity.             |
+| POST   | /v1/runs                                          | Create a Mission, Run, initial Goal, coordinator Agent, and continuation.      |
+| GET    | /v1/runs                                          | List Runs, optionally limited or status-filtered.                              |
+| GET    | /v1/runs/:runId                                   | Read Run detail, agents, current Goal, and requirements.                       |
+| POST   | /v1/runs/:runId/commands                          | Pause, resume, or cancel with an idempotency key.                              |
+| POST   | /v1/runs/:runId/steering                          | Persist steering input as an event.                                            |
+| GET    | /v1/runs/:runId/agents                            | List durable Agents.                                                           |
+| GET    | /v1/runs/:runId/agents/:agentId/events            | Read one Agent's events after a sequence number.                               |
+| GET    | /v1/runs/:runId/checkpoints                       | List persisted checkpoint metadata.                                            |
+| POST   | /v1/runs/:runId/checkpoints/:checkpointId/restore | Restore a checkpoint's workspace snapshot; requires the Run to be `paused`.    |
+| GET    | /v1/runs/:runId/approvals                         | Read durable approval records.                                                 |
+| POST   | /v1/runs/:runId/approvals/:approvalId             | Resolve one pending approval as approved or rejected with a resolver identity. |
+| GET    | /v1/runs/:runId/events                            | Read events after a sequence number.                                           |
+| GET    | /v1/runs/:runId/events/stream                     | Stream durable events through SSE.                                             |
 
 The routes accept the expected JSON shape at the server boundary and reject
 malformed/non-object payloads. Request bodies are capped at one megabyte in
@@ -89,9 +92,11 @@ history after it, then stream from the resulting sequence.
 ## TypeScript SDK
 
 OttiliClient is a thin fetch/SSE client. It owns no Run state and may be
-discarded at any time. It exposes health, readiness, version, Run creation and
-listing, detail read, idempotent commands, steering, agents, checkpoints,
-approval listing/resolution, event history, and an async streamEvents iterator.
+discarded at any time. It exposes health, readiness, version, cooperative
+shutdown, Run creation and listing, detail read, idempotent commands,
+steering, agents, per-agent event history, checkpoints (list and restore),
+approval listing/resolution, event history, and an async streamEvents
+iterator.
 
 The SDK raises OttiliClientError for non-success envelopes and transport
 errors. The error includes protocol code, retryability, and HTTP status for
