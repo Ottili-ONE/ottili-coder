@@ -39,11 +39,23 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-18 | `pnpm exec vitest run tests/unit/runtime.test.ts`                                                                                      | PASS — 9/9 including Windows `PATHEXT` resolution, `cmd.exe` batch routing, and metacharacter refusal.                                                                          |
 | 2026-08-18 | Root matrix after cross-platform repair: lint, typecheck, test, integration, e2e, recovery, boundaries, eol, format                    | PASS — unit 75/75; integration 17/17; e2e 6/6; recovery 1/1; all remaining listed commands passed.                                                                              |
 
+| 2026-08-18 | GitHub Actions matrix on `main` after cross-platform repair (commit `3f51516`) | PASS — Ubuntu, macOS, and Windows all green (run 32132026366). |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/multi-agent-graph.test.ts` | PASS — 3/3: durable planning/delegation, delegate-owns-the-turn hand-off with mailbox report-back, and task/agent-graph reconstruction after a real daemon restart. |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/context-composition.test.ts` | PASS — 3/3: live repo-map/git/diagnostic/semantic composition, budget-forced omission recorded as a durable event, and graceful degradation without a checked-out workspace. |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/stagnation-response.test.ts` | PASS — 2/2: replan → fresh-agent → durable-blocker escalation from repeated identical tool failure, and no reaction to a genuinely productive run. |
+| 2026-08-18 | `pnpm exec vitest run tests/unit/providers.test.ts tests/integration/provider-recovery.test.ts` | PASS — 13/13 and 5/5: Anthropic/Gemini normalization and failure taxonomy, failover semantics, config-driven selection, jittered consecutive-failure backoff and exhaustion park. |
+| 2026-08-18 | `pnpm exec vitest run tests/recovery/competing-daemon-takeover.test.ts` | PASS — 4/4: 18 executor-owned writes reject a superseded lease; a daemon killed mid-provider-call cannot commit on wakeup; resource-lock release is generation-scoped. |
+| 2026-08-18 | `pnpm exec vitest run tests/integration/shared-budget.test.ts` | PASS — 3/3: per-agent attribution against one shared total, exactly-once charging of a replayed session epoch, delegate usage alone triggering `budget_limited`. |
+| 2026-08-19 | `pnpm exec vitest run tests/e2e/daemon-kill-mission.test.ts` (real bundled daemon, real repo fixture, real `SIGKILL`, 90 s wall clock) | PASS — 1/1: plans a durable Task Graph, reproduces a failing test, survives `SIGKILL`, is resumed by a second daemon process, repairs the source file on disk, re-verifies with a real `node --test` run, and completes only after strong evidence and an independent verifier audit. Surfaced and fixed a resource-scope namespacing defect (every sandbox `writableRoots` entry was unmatchable) and a swallowed-stdout defect in `execute_command` failures. |
+| 2026-08-19 | Full root matrix after the composition/hardening milestone: install, lint, format, check:eol, check:boundaries, typecheck, test, integration, recovery, e2e, build, package, bench | PASS — unit 89/89; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+
 ## Still-required direct validation
 
-The local matrix is green and both reported CI failures now have named fixes
-with regressions, but the authoritative evidence is a green GitHub Actions
-matrix on Ubuntu, macOS, and Windows for the final source state. The final
-evidence still needs that matrix, a delayed real provider/tool plus
-competing-daemon takeover, and fresh documentation, dependency-license,
-provenance, and security audits on the final worktree.
+The local matrix is green, cross-platform CI was confirmed green on an
+earlier commit, and the delayed real provider/tool competing-daemon takeover
+is now proven directly (`tests/recovery/competing-daemon-takeover.test.ts`,
+`tests/e2e/daemon-kill-mission.test.ts`). The final evidence still needs: a
+green GitHub Actions matrix re-confirmed on the current HEAD, the `store.ts`
+decomposition validated against the same matrix, MCP/LSP and
+checkpoint/worktree composition evidence, and fresh documentation,
+dependency-license, provenance, and security audits on the final worktree.

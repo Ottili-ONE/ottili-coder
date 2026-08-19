@@ -38,5 +38,5 @@
     "scripts/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["**/dist/**", "node_modules"]
+  "exclude": ["**/dist/**", "node_modules", "tests/fixtures/realistic-repo/**"]
 }

@@ -595,20 +595,22 @@ export class RunCoordinator implements RunActionExecutor {
       durable.register({
         ...original,
         execute: async (input, signal): Promise<ToolResult> => {
-          const requestedScopes = original.resourceScopes(input);
+          // Policy and locking must see the same scopes. Authorizing the
+          // un-namespaced form made every sandbox root unmatchable, so a
+          // workspace could never actually be granted as writable.
+          const scopes = original.resourceScopes(input).map((value) => {
+            const scope = runtimeScope(value);
+            return {
+              ...scope,
+              identifier: namespacedIdentifier(workspaceUri, scope.identifier),
+            };
+          });
           const approvalId = this.authorizeTool({
             agent,
             input,
             lease,
-            requestedScopes,
+            requestedScopes: scopes,
             tool: original,
-          });
-          const scopes = requestedScopes.map((value) => {
-            const scope = runtimeScope(value);
-            return {
-              ...scope,
-              identifier: `${workspaceUri}:${scope.identifier}`,
-            };
           });
           if (scopes.length > 0) {
             this.store.acquireResourceLocks({
@@ -678,10 +680,10 @@ export class RunCoordinator implements RunActionExecutor {
     readonly agent: Agent;
     readonly input: Record<string, unknown>;
     readonly lease: RunLease;
-    readonly requestedScopes: readonly string[];
+    readonly requestedScopes: readonly ResourceScope[];
     readonly tool: ToolDefinition;
   }): ApprovalId | undefined {
-    const policyScopes = input.requestedScopes.map(runtimeScope);
+    const policyScopes = input.requestedScopes;
     const scoped = policyScopes.length === 0 ? [undefined] : policyScopes;
     const evaluations = permissionActionsForTool(
       policyDefinition(input.tool),
@@ -914,6 +916,20 @@ function summarizeContext(
 
 function estimateTokens(value: string): number {
   return Math.ceil(value.length / 4);
+}
+
+/**
+ * Namespaces a tool's scope under the workspace while keeping it a valid URI.
+ * Sandbox roots and lock conflicts are both decided by path containment, which
+ * only works if the joined value stays path-shaped.
+ */
+function namespacedIdentifier(
+  workspaceUri: string,
+  identifier: string,
+): string {
+  const root = workspaceUri.replace(/\/+$/u, "");
+  const relative = identifier.replace(/^\/+/u, "");
+  return relative.length === 0 ? root : `${root}/${relative}`;
 }
 
 function runtimeScope(value: string): ResourceScope {

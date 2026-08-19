@@ -1,1 +1,1 @@
-export { quote, type QuoteInput } from "./quote.js";
+export { quote, type QuoteInput } from "./quote.ts";

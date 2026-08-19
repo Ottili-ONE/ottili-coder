@@ -229,6 +229,9 @@ export class OttiliDaemonServer {
           ...(payload.permissions === undefined
             ? {}
             : { permissions: payload.permissions }),
+          ...(payload.sandbox === undefined
+            ? {}
+            : { sandbox: payload.sandbox }),
           prompt: payload.mission.prompt,
           title: payload.mission.title,
           workspaceUri: payload.mission.workspaceUri,
@@ -573,11 +576,14 @@ function parseCreateRunRequest(value: JsonObject): CreateRunRequest {
   const workspaceUri = requiredString(mission, "workspaceUri");
   const budget = value.budget;
   const permissions = value.permissions;
+  const sandbox = value.sandbox;
   const initialGoal = value.initialGoal;
   if (budget !== undefined && !isObject(budget))
     throw new Error("budget must be an object when supplied.");
   if (permissions !== undefined && !isObject(permissions))
     throw new Error("permissions must be an object when supplied.");
+  if (sandbox !== undefined && !isObject(sandbox))
+    throw new Error("sandbox must be an object when supplied.");
   if (initialGoal !== undefined && !isObject(initialGoal))
     throw new Error("initialGoal must be an object when supplied.");
   return {
@@ -590,6 +596,14 @@ function parseCreateRunRequest(value: JsonObject): CreateRunRequest {
       : {
           permissions: permissions as unknown as Exclude<
             CreateRunRequest["permissions"],
+            undefined
+          >,
+        }),
+    ...(sandbox === undefined
+      ? {}
+      : {
+          sandbox: sandbox as unknown as Exclude<
+            CreateRunRequest["sandbox"],
             undefined
           >,
         }),

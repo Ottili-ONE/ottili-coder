@@ -90,3 +90,63 @@ macOS.
 **Why:** macOS CI failed creating a worktree because `os.tmpdir()` is
 `/var/folders/...` while Git reports `/private/var/folders/...`. `path.resolve`
 never follows links, so a correctly created worktree looked missing.
+
+## ADR-010 — Executor-owned durable writes always carry a lease; the Store asserts it belongs to the Run being written
+
+**Decision:** Every `RunStore` mutator an executor calls (not just tool/agent
+lifecycle writes) takes a `FencedLease` and asserts both that the lease is
+current and that `lease.runId` matches the row being written. A small set of
+writes an operator path may also make (memory, problems, goal status) take an
+_optional_ lease and assert it only when supplied.
+
+**Why:** An audit of all 81 public `RunStore` methods found 11 executor-owned
+mutators — milestones, decisions, artifacts, git changes, recovery state,
+checkpoints — with no lease parameter at all. A superseded executor could
+still write through them after a takeover. Resource locks were a sharper case:
+they were held by executor id alone, so a daemon that reuses its configured
+executor id across a restart could release the locks of the generation that
+replaced it. Migration 4 adds a `lease_generation` column to `resource_locks`
+so ownership is `(executor_id, generation)`, not `executor_id` alone.
+
+## ADR-011 — Usage and cost are idempotent, keyed by session epoch
+
+**Decision:** `recordUsageFenced` and `recordCost` accept an `entryKey`
+(the session epoch id). A repeated write for the same key is a no-op that
+returns the existing record rather than adding to the shared budget again.
+
+**Why:** Usage and cost were previously added unconditionally. A turn replayed
+after a crash, a takeover, or a provider retry would charge the shared Run
+budget twice, which silently starves every other agent working the same Run —
+a correctness bug that would only show up as an unexplained early
+`budget_limited` transition days into a long-horizon mission. Migration 5 adds
+a `usage_entries` table with a `(run_id, entry_key)` primary key and a partial
+unique index on `cost_records(run_id, entry_key)`.
+
+## ADR-012 — A tool's resource scope is namespaced as a path, not joined with a colon
+
+**Decision:** `namespacedIdentifier(workspaceUri, identifier)` joins a tool's
+scope under the workspace as `${root}/${relative}`, and the coordinator
+authorizes tools using this namespaced form (previously it authorized the
+_un_-namespaced scope and only namespaced it afterward for locking).
+
+**Why:** Building the daemon-kill acceptance test surfaced a real defect: the
+prior code joined scopes as `` `${workspaceUri}:${scope.identifier}` ``, which
+produced a value like `file:///workspace:packages/x.ts` — not a path, so no
+`sandbox.filesystem.writableRoots` prefix check could ever match it. Every
+workspace write silently fell through to `prompt` under the `standard` policy
+regardless of the configured sandbox, and under `autonomous` the _authorized_
+scope and the _locked_ scope were computed differently, which was merely
+lucky rather than correct. This is why `--permission-mode` and a Run-creation
+`sandbox` are exposed through the API/CLI now: raising the policy without also
+granting the workspace as writable is a configuration error, not silently a
+no-op.
+
+## ADR-013 — `execute_command` failures report stdout, not only stderr
+
+**Decision:** A non-zero exit from the `execute_command` tool reports the
+trimmed, non-empty concatenation of stdout and stderr, not stderr alone.
+
+**Why:** Test runners (Node's own `--test` included) report assertion detail
+on stdout. An agent given only stderr on a failing test run sees `exited 1`
+and nothing else — it cannot read _why_ the test failed, which defeats the
+entire reproduce-then-fix loop a debugging agent depends on.

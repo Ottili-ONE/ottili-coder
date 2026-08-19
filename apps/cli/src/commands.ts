@@ -7,6 +7,7 @@ import type {
   Agent,
   Approval,
   Checkpoint,
+  PermissionPolicy,
   Run,
   RunEvent,
   RunId,
@@ -153,7 +154,9 @@ export function printHelp(writer: CliWriter): void {
     `Ottili Coder — durable coding runs, attached through a disposable terminal client.
 
 Usage:
-  ottili-coder run <prompt> [--workspace <path-or-uri>] [--json] [--follow]
+  ottili-coder run <prompt> [--workspace <path-or-uri>]
+                            [--permission-mode <safe|standard|autonomous|unrestricted>]
+                            [--json] [--follow]
   ottili-coder attach <run-id> [--after <sequence>] [--once] [--follow] [--json]
   ottili-coder resume <run-id> [--follow] [--json]
   ottili-coder runs list [--status <status>] [--limit <count>] [--json]
@@ -208,7 +211,7 @@ async function executeRun(
   }
   const options = parseOptions(tokens, {
     boolean: new Set([...commonOutputOptionNames, "follow"]),
-    values: new Set([...connectionOptionNames, "workspace"]),
+    values: new Set([...connectionOptionNames, "permission-mode", "workspace"]),
   });
   if (options.positionals.length === 0)
     throw new CliUsageError("run requires a prompt.");
@@ -219,6 +222,9 @@ async function executeRun(
     optionString(options, "workspace"),
     context.cwd(),
   );
+  const permissions = permissionPolicy(
+    optionString(options, "permission-mode"),
+  );
   const connection = await daemonConnection(options, context);
   const created = await connection.client.createRun({
     mission: {
@@ -226,6 +232,20 @@ async function executeRun(
       title: inferTitle(prompt),
       workspaceUri: workspace,
     },
+    ...(permissions === undefined
+      ? {}
+      : {
+          permissions,
+          // The sandbox caps the Run policy, so raising one without the other
+          // would leave every workspace write denied. The mission's own
+          // checkout is the writable root; nothing outside it is granted.
+          sandbox: {
+            filesystem: { readOnlyRoots: [], writableRoots: [workspace] },
+            network: { allowedDestinations: [], enabled: false },
+            permissions,
+            process: { enabled: true },
+          },
+        }),
   });
   if (hasFlag(options, "json")) {
     writeJson(context.stdout, created);
@@ -810,6 +830,31 @@ function workspaceUri(value: string | undefined, cwd: string): string {
     // Treat non-URLs as paths below.
   }
   return pathToFileURL(resolve(cwd, value)).href;
+}
+
+const PERMISSION_MODES = [
+  "safe",
+  "standard",
+  "autonomous",
+  "unrestricted",
+] as const;
+
+/**
+ * Chooses the Run's starting policy. `safe` reads freely and asks before it
+ * changes anything; `autonomous` works the checkout on its own but still stops
+ * for external and destructive actions.
+ */
+function permissionPolicy(
+  mode: string | undefined,
+): PermissionPolicy | undefined {
+  if (mode === undefined) return undefined;
+  const match = PERMISSION_MODES.find((candidate) => candidate === mode);
+  if (match === undefined) {
+    throw new CliUsageError(
+      `--permission-mode must be one of: ${PERMISSION_MODES.join(", ")}.`,
+    );
+  }
+  return { mode: match };
 }
 
 function inferTitle(prompt: string): string {

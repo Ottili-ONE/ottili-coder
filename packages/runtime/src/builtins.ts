@@ -123,8 +123,17 @@ function executeCommandTool(
         maxOutputBytes,
       );
       if (result.code !== 0) {
+        // Diagnostics land on stdout as often as stderr — a failing test
+        // runner is the common case — so a failure that reports only stderr
+        // hides the very output the agent needs to act on.
+        const detail = [result.stdout, result.stderr]
+          .map((part) => part.trim())
+          .filter((part) => part.length > 0)
+          .join("\n");
         throw new Error(
-          `Command '${command}' exited ${result.code}: ${result.stderr}`,
+          `Command '${command}' exited ${result.code}.${
+            detail.length === 0 ? "" : `\n${detail}`
+          }`,
         );
       }
       return {

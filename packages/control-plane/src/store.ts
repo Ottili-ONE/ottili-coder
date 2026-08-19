@@ -128,6 +128,8 @@ export interface CreateRunInput {
   };
   readonly permissions?: PermissionPolicy;
   readonly prompt: string;
+  /** The coordinator's starting sandbox. Delegates inherit and may narrow it. */
+  readonly sandbox?: SandboxPolicy;
   readonly requirements?: readonly {
     readonly id?: string;
     readonly title: string;
@@ -364,7 +366,7 @@ export class RunStore {
         agentId,
         runId,
         stringify(input.permissions ?? defaultPermissions),
-        stringify(defaultSandbox),
+        stringify(input.sandbox ?? defaultSandbox),
         now,
         now,
         now,

@@ -420,15 +420,18 @@ export function createMissionTools(context: MissionToolContext): ToolRegistry {
       name: "record_validation",
       async execute(input): Promise<ToolResult> {
         const passed = input.passed === true;
+        const name = requiredString(input, "name");
         const validationId = store.recordValidation({
           independent: input.independent === true,
           lease,
-          name: requiredString(input, "name"),
+          name,
           passed,
           runId,
           summary: requiredString(input, "summary"),
         });
-        return { output: JSON.stringify({ id: validationId, passed }) };
+        // Echoing the name keeps the result self-describing, so a later turn
+        // can tell which validation it already recorded.
+        return { output: JSON.stringify({ id: validationId, name, passed }) };
       },
     }),
   );

@@ -1,1 +1,1 @@
-export { applyDiscount } from "./discount.js";
+export { applyDiscount } from "./discount.ts";

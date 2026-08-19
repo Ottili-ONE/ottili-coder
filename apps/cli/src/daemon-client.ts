@@ -30,11 +30,18 @@ export interface DaemonDescriptor {
   readonly version?: string;
 }
 
+/**
+ * Discovery variables the client itself understands, plus any other variable
+ * the daemon needs. Provider credentials and workspace policy are configured
+ * through the environment, so the client has to pass them through rather than
+ * enumerate them.
+ */
 export interface DaemonClientEnvironment {
   readonly OTTILI_CODER_CONFIG_DIR?: string;
   readonly OTTILI_CODER_DAEMON_TOKEN?: string;
   readonly OTTILI_CODER_DAEMON_URL?: string;
   readonly OTTILI_DAEMON_COMMAND?: string;
+  readonly [variable: string]: string | undefined;
 }
 
 export interface DaemonClientOptions {

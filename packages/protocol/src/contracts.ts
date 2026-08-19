@@ -508,6 +508,7 @@ export interface CreateRunRequest {
   };
   readonly budget?: RunBudget;
   readonly permissions?: PermissionPolicy;
+  readonly sandbox?: SandboxPolicy;
   readonly initialGoal?: {
     readonly title: string;
     readonly description: string;
