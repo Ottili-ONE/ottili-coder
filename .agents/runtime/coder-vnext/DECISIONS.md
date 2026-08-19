@@ -150,3 +150,49 @@ trimmed, non-empty concatenation of stdout and stderr, not stderr alone.
 on stdout. An agent given only stderr on a failing test run sees `exited 1`
 and nothing else — it cannot read _why_ the test failed, which defeats the
 entire reproduce-then-fix loop a debugging agent depends on.
+
+## ADR-014 — `store.ts` splits its data layer, not its transaction boundaries
+
+**Decision:** `packages/control-plane/src/store.ts` was decomposed by
+extracting the parts that carry no transactional state of their own — error
+classes (`store/errors.ts`), input/output type declarations (`store/types.ts`),
+row-to-entity mapping (`store/mappers.ts`, 18 functions of `(database, row)`),
+and row-parsing primitives (`store/row-helpers.ts`). The `RunStore` class
+itself — every lease-fenced write, every `xxxInternal` orchestration method,
+every `mustXxx` accessor — stays one class in one file.
+
+**Why:** `SqliteDatabase.transaction()` wraps `BEGIN IMMEDIATE`/`COMMIT` and is
+not reentrant; SQLite rejects a nested `BEGIN`. Most of `RunStore`'s public
+methods open exactly one transaction and orchestrate several domains inside
+it — `createRun` touches missions, runs, goals, agents, and requirements
+atomically; `proposeCompletion` touches requirements, validations, and the run
+transition together. Splitting these into independent per-domain classes
+(TaskGraphStore, AgentGraphStore, …) would force a choice between breaking
+that atomicity or building a materially larger shared-context/mixin
+architecture than this pass's risk tolerance allowed, given that this file is
+where every lease-fencing guarantee proven this session (R17, the
+competing-daemon-takeover suite) actually lives. The mapping/type extraction
+was verified purely mechanically — full typecheck plus the complete test
+matrix, including the real-`SIGKILL` daemon-kill mission and the
+competing-daemon takeover suite — with zero behavior change, since every
+extracted function only ever depended on the `database` handle it now takes
+as an explicit parameter.
+
+## ADR-015 — A workspace path is recognized as a path before it is ever tried as a URL
+
+**Decision:** `apps/cli/src/commands.ts`'s `workspaceUri()` matches the input
+against `/^[A-Za-z]:[\\/]/` (a Windows drive letter) before attempting
+`new URL(value)`, and routes a match straight to the path-resolution branch.
+
+**Why:** `new URL("C:\\Users\\x")` does not throw — a single letter followed by
+`:` is syntactically a valid URL scheme, so Node's WHATWG URL parser accepts
+it with `protocol` `"c:"`. Every Windows absolute `--workspace` path was
+therefore treated as an already-formed URI instead of a filesystem path,
+producing a value that starts with `c:`, not `file:`. Every downstream
+consumer (`daemon-process.ts`'s `workspacePath()`) checks
+`startsWith("file:")` and silently falls back to the daemon's own working
+directory on a mismatch — the CLI reported a successful Run while the daemon
+quietly acted on the wrong directory. This was undetected until
+`tests/e2e/daemon-kill-mission.test.ts` ran on Windows CI for the first time
+and failed reproducing a test file that only exists in the fixture, not the
+product checkout.

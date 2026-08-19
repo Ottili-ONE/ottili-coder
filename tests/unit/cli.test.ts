@@ -122,6 +122,45 @@ describe("thin CLI client", () => {
     expect(JSON.parse(output.text())).toMatchObject({ run: { id: run.id } });
   });
 
+  // A Windows absolute path was silently treated as a URL: `new URL("C:\\x")`
+  // succeeds with `protocol` `"c:"`, since a single letter followed by `:` is
+  // syntactically a valid URL scheme. That URI then failed every downstream
+  // `startsWith("file:")` check, so the daemon fell back to its own working
+  // directory instead of the requested workspace — a wrong-but-successful Run.
+  it("treats a Windows drive-letter path as a filesystem path, not a URL", async () => {
+    const requests: string[] = [];
+    const output = new BufferWriter();
+    const exit = await runCli(
+      [
+        "run",
+        "Ship",
+        "the",
+        "client",
+        "--workspace",
+        String.raw`C:\Users\example\project`,
+        "--json",
+      ],
+      {
+        cwd: () => "/working-directory",
+        environment: { OTTILI_CODER_DAEMON_URL: "http://daemon.test" },
+        fetch: async (_input, init) => {
+          requests.push(typeof init?.body === "string" ? init.body : "{}");
+          return success({ mission, run });
+        },
+        stdout: output,
+      },
+    );
+
+    expect(exit).toBe(0);
+    const sentWorkspaceUri = (
+      JSON.parse(requests[0] ?? "{}") as {
+        readonly mission: { readonly workspaceUri: string };
+      }
+    ).mission.workspaceUri;
+    expect(sentWorkspaceUri.startsWith("file:")).toBe(true);
+    expect(sentWorkspaceUri.startsWith("c:")).toBe(false);
+  });
+
   it("reattaches from persisted events and exits cleanly in a non-interactive pipe", async () => {
     const output = new BufferWriter(false);
     const calls: string[] = [];

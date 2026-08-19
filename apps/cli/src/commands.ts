@@ -821,13 +821,27 @@ function parseSequence(value: string | undefined): number {
   return parsed;
 }
 
+/**
+ * A bare Windows drive letter (`C:\...` or `C:/...`) is not a URL, but the
+ * WHATWG URL parser disagrees: `new URL("C:\\Users\\x")` succeeds with
+ * `protocol` `"c:"`, since a single letter followed by `:` is syntactically a
+ * valid (if unusual) URL scheme. Without this check, `--workspace C:\repo`
+ * silently produced a non-`file:` "URI" that every consumer downstream
+ * treats as unrecognized and falls back to the daemon's own working
+ * directory instead of the requested workspace — the CLI would report
+ * success while the daemon acted on the wrong directory.
+ */
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
+
 function workspaceUri(value: string | undefined, cwd: string): string {
   if (value === undefined) return pathToFileURL(resolve(cwd)).href;
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol.length > 0) return parsed.toString();
-  } catch {
-    // Treat non-URLs as paths below.
+  if (!WINDOWS_DRIVE_PATH.test(value)) {
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol.length > 0) return parsed.toString();
+    } catch {
+      // Treat non-URLs as paths below.
+    }
   }
   return pathToFileURL(resolve(cwd, value)).href;
 }

@@ -8,15 +8,10 @@ import {
   assertTaskTransition,
   createId,
   evaluateBudget,
-  isAgentStatus,
-  isGoalStatus,
-  isRunStatus,
-  isTaskStatus,
   resourceScopesConflict,
   shouldContinueGoal,
   type Agent,
   type AgentId,
-  type AgentRole,
   type AgentMessageId,
   type AgentStatus,
   type Approval,
@@ -49,10 +44,8 @@ import {
   type Problem,
   type ProblemId,
   type RecoveryState,
-  type RecoveryStateId,
   type ResourceScope,
   type Run,
-  type RunBudget,
   type RunEvent,
   type RunEventType,
   type RunId,
@@ -62,50 +55,76 @@ import {
   type SessionEpoch,
   type Task,
   type TaskId,
-  type TaskStatus,
-  type ToolDefinition,
-  type ToolIdempotency,
-  type ToolRecoveryStrategy,
-  type ToolSideEffectClass,
 } from "@ottili/core";
 
-import { SqliteDatabase, type SqlRow } from "./database.js";
+import { SqliteDatabase } from "./database.js";
+import {
+  LeaseFencedError,
+  ResourceLockConflictError,
+  RevisionConflictError,
+} from "./store/errors.js";
+import * as mappers from "./store/mappers.js";
+import {
+  asNumber,
+  asOneOf,
+  asString,
+  optionalNumber,
+  optionalString,
+  parseJson,
+  stringify,
+  summarizeTitle,
+} from "./store/row-helpers.js";
+import type {
+  AgentMessage,
+  CheckpointRecord,
+  Clock,
+  ClaimTaskInput,
+  CreateRunInput,
+  CreateTaskInput,
+  DurableRunCommand,
+  FencedLease,
+  ListTasksOptions,
+  RecordProblemInput,
+  RecoveredGraphWork,
+  RequestApprovalInput,
+  RequirementRecord,
+  ScheduledAction,
+  SendAgentMessageInput,
+  SpawnAgentInput,
+  ToolIntentInput,
+  TransitionTaskInput,
+  UnknownToolCall,
+  ValidationRecord,
+} from "./store/types.js";
 
-export class LeaseFencedError extends Error {
-  public constructor(
-    readonly runId: RunId,
-    message: string,
-  ) {
-    super(message);
-    this.name = "LeaseFencedError";
-  }
-}
-
-export class RevisionConflictError extends Error {
-  public constructor(
-    readonly runId: RunId,
-    readonly expected: number,
-    readonly actual: number,
-  ) {
-    super(
-      `Run '${runId}' revision conflict: expected ${expected}, found ${actual}.`,
-    );
-    this.name = "RevisionConflictError";
-  }
-}
-
-export class ResourceLockConflictError extends Error {
-  public constructor(readonly scope: ResourceScope) {
-    super(
-      `Resource scope '${scope.kind}:${scope.identifier}' is locked by another task.`,
-    );
-    this.name = "ResourceLockConflictError";
-  }
-}
-
-export interface Clock {
-  now(): Date;
-}
+export {
+  LeaseFencedError,
+  ResourceLockConflictError,
+  RevisionConflictError,
+} from "./store/errors.js";
+export type {
+  AgentMessage,
+  AgentMessageKind,
+  CheckpointRecord,
+  Clock,
+  ClaimTaskInput,
+  CreateRunInput,
+  CreateTaskInput,
+  DurableRunCommand,
+  FencedLease,
+  ListTasksOptions,
+  RecordProblemInput,
+  RecoveredGraphWork,
+  RequestApprovalInput,
+  RequirementRecord,
+  ScheduledAction,
+  SendAgentMessageInput,
+  SpawnAgentInput,
+  ToolIntentInput,
+  TransitionTaskInput,
+  UnknownToolCall,
+  ValidationRecord,
+} from "./store/types.js";
 
 const systemClock: Clock = { now: () => new Date() };
 
@@ -119,190 +138,6 @@ const defaultSandbox: SandboxPolicy = {
   permissions: defaultPermissions,
   process: { enabled: true },
 };
-
-export interface CreateRunInput {
-  readonly budget?: RunBudget;
-  readonly initialGoal?: {
-    readonly description: string;
-    readonly title: string;
-  };
-  readonly permissions?: PermissionPolicy;
-  readonly prompt: string;
-  /** The coordinator's starting sandbox. Delegates inherit and may narrow it. */
-  readonly sandbox?: SandboxPolicy;
-  readonly requirements?: readonly {
-    readonly id?: string;
-    readonly title: string;
-    readonly required?: boolean;
-  }[];
-  readonly title?: string;
-  readonly workspaceUri: string;
-}
-
-export interface RequirementRecord {
-  readonly evidence: readonly {
-    readonly id: string;
-    readonly kind: "artifact" | "command" | "inspection" | "review" | "test";
-    readonly strength: "strong" | "supporting" | "weak";
-    readonly summary: string;
-  }[];
-  readonly id: string;
-  readonly required: boolean;
-  readonly status: "contradicted" | "proven" | "unproven" | "waived";
-  readonly title: string;
-}
-
-export interface CheckpointRecord {
-  readonly id: CheckpointId;
-  readonly label: string;
-  readonly manifest: JsonObject;
-  readonly reason: string;
-  readonly runId: RunId;
-  readonly sequence: number;
-  readonly workspaceRef?: string;
-  readonly createdAt: string;
-}
-
-export interface ValidationRecord {
-  readonly createdAt: string;
-  readonly id: string;
-  readonly independent: boolean;
-  readonly name: string;
-  readonly passed: boolean;
-  readonly runId: RunId;
-  readonly summary: string;
-}
-
-export type DurableRunCommand = "cancel" | "pause" | "resume";
-
-export interface ScheduledAction {
-  readonly actionType: "continue_goal";
-  readonly attempt: number;
-  readonly runId: RunId;
-}
-
-export interface SpawnAgentInput {
-  readonly lease?: FencedLease;
-  readonly parentAgentId?: AgentId;
-  readonly permissions?: PermissionPolicy;
-  readonly role: AgentRole;
-  readonly runId: RunId;
-  readonly sandbox?: SandboxPolicy;
-  readonly taskId?: TaskId;
-  readonly worktreeUri?: string;
-}
-
-export interface CreateTaskInput {
-  readonly dependencies?: readonly TaskId[];
-  readonly description: string;
-  readonly goalId?: GoalId;
-  /** Required for executor-owned writes; omitted only by control-plane tools. */
-  readonly lease?: FencedLease;
-  readonly requirementIds?: readonly string[];
-  readonly resourceScopes?: readonly ResourceScope[];
-  readonly runId: RunId;
-  readonly title: string;
-}
-
-/** The subset of a lease that fences a durable write. */
-export type FencedLease = Pick<RunLease, "generation" | "executorId" | "runId">;
-
-export interface TransitionTaskInput {
-  readonly error?: string;
-  readonly lease?: FencedLease;
-  readonly result?: JsonValue;
-  readonly taskId: TaskId;
-  readonly to: TaskStatus;
-}
-
-export interface ClaimTaskInput {
-  readonly agentId: AgentId;
-  readonly lease: FencedLease;
-  readonly taskId: TaskId;
-}
-
-export interface ListTasksOptions {
-  readonly ownerAgentId?: AgentId;
-  readonly status?: readonly TaskStatus[];
-}
-
-export type AgentMessageKind =
-  | "task_assignment"
-  | "task_result"
-  | "question"
-  | "answer"
-  | "review_request"
-  | "review_result"
-  | "status";
-
-export interface AgentMessage {
-  readonly id: AgentMessageId;
-  readonly runId: RunId;
-  readonly fromAgentId?: AgentId;
-  readonly toAgentId: AgentId;
-  readonly taskId?: TaskId;
-  readonly kind: AgentMessageKind;
-  readonly body: JsonObject;
-  readonly status: "delivered" | "pending";
-  readonly createdAt: string;
-  readonly deliveredAt?: string;
-}
-
-export interface SendAgentMessageInput {
-  readonly body: JsonObject;
-  readonly fromAgentId?: AgentId;
-  readonly kind: AgentMessageKind;
-  readonly lease: FencedLease;
-  readonly taskId?: TaskId;
-  readonly toAgentId: AgentId;
-}
-
-export interface RecoveredGraphWork {
-  readonly agentIds: readonly AgentId[];
-  readonly taskIds: readonly TaskId[];
-}
-
-export interface ToolIntentInput {
-  readonly agentId?: AgentId;
-  /** A one-shot, already approved policy authorization for this intent. */
-  readonly approvalId?: ApprovalId;
-  readonly definition: Pick<
-    ToolDefinition,
-    "idempotency" | "name" | "recovery" | "sideEffectClass"
-  >;
-  readonly input: JsonValue;
-  readonly lease: Pick<RunLease, "generation" | "executorId" | "runId">;
-  readonly taskId?: TaskId;
-}
-
-export interface UnknownToolCall {
-  readonly id: string;
-  readonly name: string;
-  readonly runId: RunId;
-  readonly recovery: ToolRecoveryStrategy;
-  readonly sideEffectClass: ToolSideEffectClass;
-  readonly idempotency: ToolIdempotency;
-}
-
-export interface RecordProblemInput {
-  readonly alternateActionAvailable: boolean;
-  readonly lease?: FencedLease;
-  readonly externalDependency: boolean;
-  readonly fingerprint: string;
-  readonly meaningful?: boolean;
-  readonly note?: string;
-  readonly runId: RunId;
-  readonly summary: string;
-  readonly taskId?: TaskId;
-}
-
-export interface RequestApprovalInput {
-  readonly agentId?: AgentId;
-  readonly lease?: Pick<RunLease, "generation" | "executorId" | "runId">;
-  readonly runId: RunId;
-  readonly summary: string;
-  readonly toolCallId?: string;
-}
 
 export class RunStore {
   public constructor(
@@ -400,7 +235,9 @@ export class RunStore {
 
   public getRun(runId: RunId): Run | undefined {
     const row = this.database.get("SELECT * FROM runs WHERE id = ?", runId);
-    return row === undefined ? undefined : this.runFromRow(row);
+    return row === undefined
+      ? undefined
+      : mappers.runFromRow(this.database, row);
   }
 
   public getMission(missionId: MissionId): Mission | undefined {
@@ -408,24 +245,28 @@ export class RunStore {
       "SELECT * FROM missions WHERE id = ?",
       missionId,
     );
-    return row === undefined ? undefined : this.missionFromRow(row);
+    return row === undefined
+      ? undefined
+      : mappers.missionFromRow(this.database, row);
   }
 
   public listRuns(): readonly Run[] {
     return this.database
       .all("SELECT * FROM runs ORDER BY created_at DESC")
-      .map((row) => this.runFromRow(row));
+      .map((row) => mappers.runFromRow(this.database, row));
   }
 
   public getGoal(goalId: GoalId): Goal | undefined {
     const row = this.database.get("SELECT * FROM goals WHERE id = ?", goalId);
-    return row === undefined ? undefined : this.goalFromRow(row);
+    return row === undefined
+      ? undefined
+      : mappers.goalFromRow(this.database, row);
   }
 
   public listGoals(runId: RunId): readonly Goal[] {
     return this.database
       .all("SELECT * FROM goals WHERE run_id = ? ORDER BY created_at", runId)
-      .map((row) => this.goalFromRow(row));
+      .map((row) => mappers.goalFromRow(this.database, row));
   }
 
   public listAgents(runId: RunId): readonly Agent[] {
@@ -434,7 +275,7 @@ export class RunStore {
         "SELECT * FROM agents WHERE run_id = ? ORDER BY created_at, rowid",
         runId,
       )
-      .map((row) => this.agentFromRow(row));
+      .map((row) => mappers.agentFromRow(this.database, row));
   }
 
   public listEvents(runId: RunId, afterSequence = 0): readonly RunEvent[] {
@@ -444,7 +285,7 @@ export class RunStore {
         runId,
         afterSequence,
       )
-      .map((row) => this.eventFromRow(row));
+      .map((row) => mappers.eventFromRow(this.database, row));
   }
 
   public listRequirements(runId: RunId): readonly RequirementRecord[] {
@@ -568,7 +409,7 @@ export class RunStore {
         "SELECT * FROM milestones WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.milestoneFromRow(row));
+      .map((row) => mappers.milestoneFromRow(this.database, row));
   }
 
   public recordDecision(input: {
@@ -603,7 +444,7 @@ export class RunStore {
         "SELECT * FROM decisions WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.decisionFromRow(row));
+      .map((row) => mappers.decisionFromRow(this.database, row));
   }
 
   /**
@@ -692,7 +533,7 @@ export class RunStore {
       row = this.database.get("SELECT * FROM problems WHERE id = ?", id);
       if (row === undefined)
         throw new Error("Recorded Problem could not be read back.");
-      return this.problemFromRow(row);
+      return mappers.problemFromRow(this.database, row);
     });
   }
 
@@ -702,7 +543,7 @@ export class RunStore {
         "SELECT * FROM problems WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.problemFromRow(row));
+      .map((row) => mappers.problemFromRow(this.database, row));
   }
 
   public addArtifact(input: {
@@ -747,7 +588,7 @@ export class RunStore {
         "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.artifactFromRow(row));
+      .map((row) => mappers.artifactFromRow(this.database, row));
   }
 
   public recordGitChange(input: {
@@ -782,7 +623,7 @@ export class RunStore {
         "SELECT * FROM git_changes WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.gitChangeFromRow(row));
+      .map((row) => mappers.gitChangeFromRow(this.database, row));
   }
 
   public recordCost(input: {
@@ -854,7 +695,7 @@ export class RunStore {
         "SELECT * FROM cost_records WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.costRecordFromRow(row));
+      .map((row) => mappers.costRecordFromRow(this.database, row));
   }
 
   public setRecoveryState(input: {
@@ -894,7 +735,9 @@ export class RunStore {
       "SELECT * FROM recovery_states WHERE run_id = ?",
       runId,
     );
-    return row === undefined ? undefined : this.recoveryStateFromRow(row);
+    return row === undefined
+      ? undefined
+      : mappers.recoveryStateFromRow(this.database, row);
   }
 
   public createContextSnapshot(input: {
@@ -954,7 +797,7 @@ export class RunStore {
         "SELECT * FROM context_snapshots WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.contextSnapshotFromRow(row));
+      .map((row) => mappers.contextSnapshotFromRow(this.database, row));
   }
 
   public addMemoryEntry(input: {
@@ -1000,7 +843,7 @@ export class RunStore {
         "SELECT * FROM memory_entries WHERE run_id = ? ORDER BY created_at, id",
         runId,
       )
-      .map((row) => this.memoryEntryFromRow(row));
+      .map((row) => mappers.memoryEntryFromRow(this.database, row));
   }
 
   public requestApproval(input: RequestApprovalInput): Approval {
@@ -1044,7 +887,7 @@ export class RunStore {
         "SELECT * FROM approvals WHERE run_id = ? ORDER BY requested_at, id",
         runId,
       )
-      .map((row) => this.approvalFromRow(row));
+      .map((row) => mappers.approvalFromRow(this.database, row));
   }
 
   public resolveApproval(input: {
@@ -1333,7 +1176,7 @@ export class RunStore {
       if (asString(row, "goal_version") !== input.expectedGoalVersion) {
         throw new RevisionConflictError(asString(row, "run_id") as RunId, 0, 1);
       }
-      const current = this.goalFromRow(row);
+      const current = mappers.goalFromRow(this.database, row);
       assertGoalTransition(current.status, input.to);
       this.database.run(
         "UPDATE goals SET status = ?, completed_at = ?, updated_at = ? WHERE id = ? AND goal_version = ?",
@@ -1639,7 +1482,9 @@ export class RunStore {
 
   public getTask(taskId: TaskId): Task | undefined {
     const row = this.database.get("SELECT * FROM tasks WHERE id = ?", taskId);
-    return row === undefined ? undefined : this.taskFromRow(row);
+    return row === undefined
+      ? undefined
+      : mappers.taskFromRow(this.database, row);
   }
 
   /**
@@ -1668,7 +1513,7 @@ export class RunStore {
         `SELECT * FROM tasks WHERE ${conditions.join(" AND ")} ORDER BY created_at, rowid`,
         ...parameters,
       )
-      .map((row) => this.taskFromRow(row));
+      .map((row) => mappers.taskFromRow(this.database, row));
   }
 
   /** The next unowned ready Task, in creation order. */
@@ -1911,7 +1756,9 @@ export class RunStore {
         input.lease.runId,
         input.limit ?? 32,
       );
-      const messages = rows.map((row) => this.agentMessageFromRow(row));
+      const messages = rows.map((row) =>
+        mappers.agentMessageFromRow(this.database, row),
+      );
       for (const message of messages) {
         this.database.run(
           "UPDATE agent_messages SET status = 'delivered', delivered_at = ? WHERE id = ?",
@@ -1940,7 +1787,7 @@ export class RunStore {
         "SELECT * FROM agent_messages WHERE run_id = ? ORDER BY created_at, rowid",
         runId,
       )
-      .map((row) => this.agentMessageFromRow(row));
+      .map((row) => mappers.agentMessageFromRow(this.database, row));
   }
 
   public createTask(input: CreateTaskInput): Task {
@@ -2175,7 +2022,8 @@ export class RunStore {
         now,
         now,
       );
-      return this.sessionEpochFromRow(
+      return mappers.sessionEpochFromRow(
+        this.database,
         this.database.get("SELECT * FROM session_epochs WHERE id = ?", id) ??
           {},
       );
@@ -2220,7 +2068,7 @@ export class RunStore {
       );
       if (row === undefined)
         throw new Error(`Session epoch '${input.id}' was not found.`);
-      return this.sessionEpochFromRow(row);
+      return mappers.sessionEpochFromRow(this.database, row);
     });
   }
 
@@ -3003,13 +2851,13 @@ export class RunStore {
   private mustTask(taskId: TaskId): Task {
     const row = this.database.get("SELECT * FROM tasks WHERE id = ?", taskId);
     if (row === undefined) throw new Error(`Task '${taskId}' was not found.`);
-    return this.taskFromRow(row);
+    return mappers.taskFromRow(this.database, row);
   }
 
   private mustAgent(agentId: AgentId): Agent {
     const row = this.database.get("SELECT * FROM agents WHERE id = ?", agentId);
     if (row === undefined) throw new Error(`Agent '${agentId}' was not found.`);
-    return this.agentFromRow(row);
+    return mappers.agentFromRow(this.database, row);
   }
 
   private mustLease(runId: RunId): RunLease {
@@ -3037,25 +2885,25 @@ export class RunStore {
   private mustMilestone(id: MilestoneId): Milestone {
     const row = this.database.get("SELECT * FROM milestones WHERE id = ?", id);
     if (row === undefined) throw new Error(`Milestone '${id}' was not found.`);
-    return this.milestoneFromRow(row);
+    return mappers.milestoneFromRow(this.database, row);
   }
 
   private mustDecision(id: DecisionId): Decision {
     const row = this.database.get("SELECT * FROM decisions WHERE id = ?", id);
     if (row === undefined) throw new Error(`Decision '${id}' was not found.`);
-    return this.decisionFromRow(row);
+    return mappers.decisionFromRow(this.database, row);
   }
 
   private mustArtifact(id: ArtifactId): Artifact {
     const row = this.database.get("SELECT * FROM artifacts WHERE id = ?", id);
     if (row === undefined) throw new Error(`Artifact '${id}' was not found.`);
-    return this.artifactFromRow(row);
+    return mappers.artifactFromRow(this.database, row);
   }
 
   private mustGitChange(id: GitChangeId): GitChange {
     const row = this.database.get("SELECT * FROM git_changes WHERE id = ?", id);
     if (row === undefined) throw new Error(`GitChange '${id}' was not found.`);
-    return this.gitChangeFromRow(row);
+    return mappers.gitChangeFromRow(this.database, row);
   }
 
   private mustCostRecord(id: CostRecordId): CostRecord {
@@ -3064,7 +2912,7 @@ export class RunStore {
       id,
     );
     if (row === undefined) throw new Error(`CostRecord '${id}' was not found.`);
-    return this.costRecordFromRow(row);
+    return mappers.costRecordFromRow(this.database, row);
   }
 
   private mustRecoveryState(runId: RunId): RecoveryState {
@@ -3074,7 +2922,7 @@ export class RunStore {
     );
     if (row === undefined)
       throw new Error(`RecoveryState for Run '${runId}' was not found.`);
-    return this.recoveryStateFromRow(row);
+    return mappers.recoveryStateFromRow(this.database, row);
   }
 
   private mustContextSnapshot(id: ContextSnapshotId): ContextSnapshot {
@@ -3084,7 +2932,7 @@ export class RunStore {
     );
     if (row === undefined)
       throw new Error(`ContextSnapshot '${id}' was not found.`);
-    return this.contextSnapshotFromRow(row);
+    return mappers.contextSnapshotFromRow(this.database, row);
   }
 
   private mustMemoryEntry(id: MemoryEntryId): MemoryEntry {
@@ -3094,7 +2942,7 @@ export class RunStore {
     );
     if (row === undefined)
       throw new Error(`MemoryEntry '${id}' was not found.`);
-    return this.memoryEntryFromRow(row);
+    return mappers.memoryEntryFromRow(this.database, row);
   }
 
   private mustAgentMessage(id: AgentMessageId): AgentMessage {
@@ -3104,41 +2952,13 @@ export class RunStore {
     );
     if (row === undefined)
       throw new Error(`Agent message '${id}' was not found.`);
-    return this.agentMessageFromRow(row);
-  }
-
-  private agentMessageFromRow(row: SqlRow): AgentMessage {
-    const fromAgentId = optionalString(row, "from_agent_id");
-    const taskId = optionalString(row, "task_id");
-    const deliveredAt = optionalString(row, "delivered_at");
-    return {
-      body: parseJson<JsonObject>(asString(row, "body_json")),
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as AgentMessageId,
-      kind: asOneOf(row, "kind", [
-        "answer",
-        "question",
-        "review_request",
-        "review_result",
-        "status",
-        "task_assignment",
-        "task_result",
-      ] as const),
-      runId: asString(row, "run_id") as RunId,
-      status: asOneOf(row, "status", ["delivered", "pending"] as const),
-      toAgentId: asString(row, "to_agent_id") as AgentId,
-      ...(fromAgentId === undefined
-        ? {}
-        : { fromAgentId: fromAgentId as AgentId }),
-      ...(taskId === undefined ? {} : { taskId: taskId as TaskId }),
-      ...(deliveredAt === undefined ? {} : { deliveredAt }),
-    };
+    return mappers.agentMessageFromRow(this.database, row);
   }
 
   private mustApproval(id: ApprovalId): Approval {
     const row = this.database.get("SELECT * FROM approvals WHERE id = ?", id);
     if (row === undefined) throw new Error(`Approval '${id}' was not found.`);
-    return this.approvalFromRow(row);
+    return mappers.approvalFromRow(this.database, row);
   }
 
   private blockRunForProblemInternal(
@@ -3176,523 +2996,7 @@ export class RunStore {
     }
   }
 
-  private milestoneFromRow(row: SqlRow): Milestone {
-    const id = asString(row, "id") as MilestoneId;
-    return {
-      createdAt: asString(row, "created_at"),
-      id,
-      runId: asString(row, "run_id") as RunId,
-      status: asOneOf(row, "status", [
-        "pending",
-        "active",
-        "completed",
-        "cancelled",
-      ] as const),
-      taskIds: this.database
-        .all(
-          "SELECT task_id FROM milestone_tasks WHERE milestone_id = ? ORDER BY task_id",
-          id,
-        )
-        .map((item) => asString(item, "task_id") as TaskId),
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-    };
-  }
-
-  private decisionFromRow(row: SqlRow): Decision {
-    return {
-      alternatives: parseJson<readonly string[]>(
-        asString(row, "alternatives_json"),
-      ),
-      createdAt: asString(row, "created_at"),
-      evidenceIds: parseJson<readonly string[]>(
-        asString(row, "evidence_ids_json"),
-      ) as Decision["evidenceIds"],
-      id: asString(row, "id") as DecisionId,
-      rationale: asString(row, "rationale"),
-      runId: asString(row, "run_id") as RunId,
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-    };
-  }
-
-  private problemFromRow(row: SqlRow): Problem {
-    return {
-      alternateActionAvailable:
-        asNumber(row, "alternate_action_available") === 1,
-      createdAt: asString(row, "created_at"),
-      externalDependency: asNumber(row, "external_dependency") === 1,
-      fingerprint: asString(row, "fingerprint"),
-      id: asString(row, "id") as ProblemId,
-      meaningfulAttempts: asNumber(row, "meaningful_attempts"),
-      runId: asString(row, "run_id") as RunId,
-      status: asOneOf(row, "status", [
-        "open",
-        "waiting",
-        "resolved",
-        "blocked",
-      ] as const),
-      summary: asString(row, "summary"),
-      updatedAt: asString(row, "updated_at"),
-    };
-  }
-
-  private artifactFromRow(row: SqlRow): Artifact {
-    const mediaType = optionalString(row, "media_type");
-    const sizeBytes = optionalNumber(row, "size_bytes");
-    const checksum = optionalString(row, "checksum");
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as ArtifactId,
-      label: asString(row, "label"),
-      runId: asString(row, "run_id") as RunId,
-      uri: asString(row, "uri"),
-      updatedAt: asString(row, "updated_at"),
-      ...(mediaType === undefined ? {} : { mediaType }),
-      ...(sizeBytes === undefined ? {} : { sizeBytes }),
-      ...(checksum === undefined ? {} : { checksum }),
-    };
-  }
-
-  private gitChangeFromRow(row: SqlRow): GitChange {
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as GitChangeId,
-      repositoryUri: asString(row, "repository_uri"),
-      revision: asString(row, "revision"),
-      runId: asString(row, "run_id") as RunId,
-      summary: asString(row, "summary"),
-      taskIds: parseJson<readonly string[]>(
-        asString(row, "task_ids_json"),
-      ) as GitChange["taskIds"],
-      updatedAt: asString(row, "updated_at"),
-    };
-  }
-
-  private costRecordFromRow(row: SqlRow): CostRecord {
-    const agentId = optionalString(row, "agent_id");
-    const sessionEpochId = optionalString(row, "session_epoch_id");
-    return {
-      cachedTokens: asNumber(row, "cached_tokens"),
-      costUsd: asNumber(row, "cost_usd"),
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as CostRecordId,
-      inputTokens: asNumber(row, "input_tokens"),
-      outputTokens: asNumber(row, "output_tokens"),
-      runId: asString(row, "run_id") as RunId,
-      updatedAt: asString(row, "updated_at"),
-      ...(agentId === undefined ? {} : { agentId: agentId as AgentId }),
-      ...(sessionEpochId === undefined
-        ? {}
-        : { sessionEpochId: sessionEpochId as SessionEpoch["id"] }),
-    };
-  }
-
-  private recoveryStateFromRow(row: SqlRow): RecoveryState {
-    const lastCheckpointId = optionalString(row, "last_checkpoint_id");
-    const reason = optionalString(row, "reason");
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as RecoveryStateId,
-      runId: asString(row, "run_id") as RunId,
-      status: asOneOf(row, "status", [
-        "idle",
-        "required",
-        "reconciling",
-        "recovered",
-        "manual_intervention",
-      ] as const),
-      unknownToolCallIds: parseJson<readonly string[]>(
-        asString(row, "unknown_tool_call_ids_json"),
-      ) as RecoveryState["unknownToolCallIds"],
-      updatedAt: asString(row, "updated_at"),
-      ...(lastCheckpointId === undefined
-        ? {}
-        : { lastCheckpointId: lastCheckpointId as CheckpointId }),
-      ...(reason === undefined ? {} : { reason }),
-    };
-  }
-
-  private contextSnapshotFromRow(row: SqlRow): ContextSnapshot {
-    const agentId = optionalString(row, "agent_id");
-    const sessionEpochId = optionalString(row, "session_epoch_id");
-    const checkpointId = optionalString(row, "checkpoint_id");
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as ContextSnapshotId,
-      runId: asString(row, "run_id") as RunId,
-      summary: asString(row, "summary"),
-      tokenCount: asNumber(row, "token_count"),
-      updatedAt: asString(row, "updated_at"),
-      ...(agentId === undefined ? {} : { agentId: agentId as AgentId }),
-      ...(sessionEpochId === undefined
-        ? {}
-        : { sessionEpochId: sessionEpochId as SessionEpoch["id"] }),
-      ...(checkpointId === undefined
-        ? {}
-        : { checkpointId: checkpointId as CheckpointId }),
-    };
-  }
-
-  private memoryEntryFromRow(row: SqlRow): MemoryEntry {
-    const agentId = optionalString(row, "agent_id");
-    return {
-      confidence: asNumber(row, "confidence"),
-      content: asString(row, "content"),
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as MemoryEntryId,
-      runId: asString(row, "run_id") as RunId,
-      scope: asOneOf(row, "scope", ["run", "project", "agent"] as const),
-      sourceEvidenceIds: parseJson<readonly string[]>(
-        asString(row, "source_evidence_ids_json"),
-      ) as MemoryEntry["sourceEvidenceIds"],
-      updatedAt: asString(row, "updated_at"),
-      ...(agentId === undefined ? {} : { agentId: agentId as AgentId }),
-    };
-  }
-
-  private approvalFromRow(row: SqlRow): Approval {
-    const agentId = optionalString(row, "agent_id");
-    const toolCallId = optionalString(row, "tool_call_id");
-    const resolvedAt = optionalString(row, "resolved_at");
-    const resolverId = optionalString(row, "resolver_id");
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as ApprovalId,
-      requestedAt: asString(row, "requested_at"),
-      runId: asString(row, "run_id") as RunId,
-      status: asOneOf(row, "status", [
-        "pending",
-        "approved",
-        "consumed",
-        "rejected",
-        "expired",
-      ] as const),
-      summary: asString(row, "summary"),
-      updatedAt: asString(row, "updated_at"),
-      ...(agentId === undefined ? {} : { agentId: agentId as AgentId }),
-      ...(toolCallId === undefined
-        ? {}
-        : {
-            toolCallId: toolCallId as Exclude<
-              Approval["toolCallId"],
-              undefined
-            >,
-          }),
-      ...(resolvedAt === undefined ? {} : { resolvedAt }),
-      ...(resolverId === undefined ? {} : { resolverId }),
-    };
-  }
-
-  private runFromRow(row: SqlRow): Run {
-    const status = asString(row, "status");
-    if (!isRunStatus(status))
-      throw new Error(`Invalid persisted Run status '${status}'.`);
-    const currentGoalId = optionalString(row, "current_goal_id");
-    const startedAt = optionalString(row, "started_at");
-    const completedAt = optionalString(row, "completed_at");
-    const blockedReason = optionalString(row, "blocked_reason");
-    return {
-      budget: parseJson<RunBudget>(asString(row, "budget_json")),
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as RunId,
-      missionId: asString(row, "mission_id") as MissionId,
-      revision: asNumber(row, "revision"),
-      status,
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-      usage: parseJson<Run["usage"]>(asString(row, "usage_json")),
-      ...(currentGoalId === undefined
-        ? {}
-        : { currentGoalId: currentGoalId as GoalId }),
-      ...(startedAt === undefined ? {} : { startedAt }),
-      ...(completedAt === undefined ? {} : { completedAt }),
-      ...(blockedReason === undefined ? {} : { blockedReason }),
-    };
-  }
-
-  private missionFromRow(row: SqlRow): Mission {
-    const metadataJson = optionalString(row, "metadata_json");
-    return {
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as MissionId,
-      prompt: asString(row, "prompt"),
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-      workspaceUri: asString(row, "workspace_uri"),
-      ...(metadataJson === undefined
-        ? {}
-        : { metadata: parseJson<JsonObject>(metadataJson) }),
-    };
-  }
-
-  private goalFromRow(row: SqlRow): Goal {
-    const status = asString(row, "status");
-    if (!isGoalStatus(status))
-      throw new Error(`Invalid persisted Goal status '${status}'.`);
-    const parentGoalId = optionalString(row, "parent_goal_id");
-    const blockerFingerprint = optionalString(row, "blocker_fingerprint");
-    const completedAt = optionalString(row, "completed_at");
-    return {
-      continuationCount: asNumber(row, "continuation_count"),
-      createdAt: asString(row, "created_at"),
-      description: asString(row, "description"),
-      id: asString(row, "id") as GoalId,
-      runId: asString(row, "run_id") as RunId,
-      status,
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-      ...(parentGoalId === undefined
-        ? {}
-        : { parentGoalId: parentGoalId as GoalId }),
-      ...(blockerFingerprint === undefined ? {} : { blockerFingerprint }),
-      ...(completedAt === undefined ? {} : { completedAt }),
-    };
-  }
-
-  private taskFromRow(row: SqlRow): Task {
-    const status = asString(row, "status");
-    if (!isTaskStatus(status))
-      throw new Error(`Invalid persisted Task status '${status}'.`);
-    const id = asString(row, "id") as TaskId;
-    const goalId = optionalString(row, "goal_id");
-    const ownerAgentId = optionalString(row, "owner_agent_id");
-    const resultJson = optionalString(row, "result_json");
-    const completedAt = optionalString(row, "completed_at");
-    const lastError = optionalString(row, "last_error");
-    return {
-      attempt: Number(row["attempt"] ?? 0),
-      blockerIds: this.database
-        .all(
-          "SELECT problem_id FROM task_problems WHERE task_id = ? ORDER BY problem_id",
-          id,
-        )
-        .map((problem) => asString(problem, "problem_id") as ProblemId),
-      createdAt: asString(row, "created_at"),
-      dependencyIds: this.database
-        .all(
-          "SELECT dependency_id FROM task_dependencies WHERE task_id = ? ORDER BY dependency_id",
-          id,
-        )
-        .map((dependency) => asString(dependency, "dependency_id") as TaskId),
-      description: asString(row, "description"),
-      evidenceIds: this.database
-        .all(
-          "SELECT evidence_id FROM task_evidence WHERE task_id = ? ORDER BY evidence_id",
-          id,
-        )
-        .map(
-          (evidence) =>
-            asString(evidence, "evidence_id") as Task["evidenceIds"][number],
-        ),
-      id,
-      requirementIds: this.database
-        .all(
-          "SELECT requirement_id FROM task_requirements WHERE task_id = ? ORDER BY requirement_id",
-          id,
-        )
-        .map(
-          (requirement) =>
-            asString(
-              requirement,
-              "requirement_id",
-            ) as Task["requirementIds"][number],
-        ),
-      resourceScopes: this.database
-        .all("SELECT * FROM task_resource_scopes WHERE task_id = ?", id)
-        .map((scope) => ({
-          access: asOneOf(scope, "access_mode", ["read", "write"] as const),
-          identifier: asString(scope, "identifier"),
-          kind: asOneOf(scope, "kind", [
-            "custom",
-            "database",
-            "deployment",
-            "file",
-            "git",
-            "process",
-            "repository",
-            "service",
-          ] as const),
-        })),
-      runId: asString(row, "run_id") as RunId,
-      status,
-      title: asString(row, "title"),
-      updatedAt: asString(row, "updated_at"),
-      ...(goalId === undefined ? {} : { goalId: goalId as GoalId }),
-      ...(ownerAgentId === undefined
-        ? {}
-        : { ownerAgentId: ownerAgentId as AgentId }),
-      ...(resultJson === undefined
-        ? {}
-        : { result: parseJson<JsonValue>(resultJson) }),
-      ...(completedAt === undefined ? {} : { completedAt }),
-      ...(lastError === undefined ? {} : { lastError }),
-    };
-  }
-
-  private agentFromRow(row: SqlRow): Agent {
-    const status = asString(row, "status");
-    if (!isAgentStatus(status))
-      throw new Error(`Invalid persisted Agent status '${status}'.`);
-    const id = asString(row, "id") as AgentId;
-    const taskId = optionalString(row, "task_id");
-    const worktreeUri = optionalString(row, "worktree_uri");
-    const closedAt = optionalString(row, "closed_at");
-    const parentAgentId = this.parentAgentId(id);
-    return {
-      createdAt: asString(row, "created_at"),
-      id,
-      permissions: parseJson<PermissionPolicy>(
-        asString(row, "permissions_json"),
-      ),
-      role: asOneOf(row, "role", [
-        "coordinator",
-        "debugger",
-        "implementer",
-        "researcher",
-        "reviewer",
-        "specialist",
-        "verifier",
-      ] as const),
-      runId: asString(row, "run_id") as RunId,
-      sandbox: parseJson<SandboxPolicy>(asString(row, "sandbox_json")),
-      sessionEpochIds: this.database
-        .all(
-          "SELECT id FROM session_epochs WHERE agent_id = ? ORDER BY ordinal",
-          id,
-        )
-        .map(
-          (epoch) => asString(epoch, "id") as Agent["sessionEpochIds"][number],
-        ),
-      spawnedAt: asString(row, "spawned_at"),
-      status,
-      updatedAt: asString(row, "updated_at"),
-      ...(taskId === undefined ? {} : { taskId: taskId as TaskId }),
-      ...(worktreeUri === undefined ? {} : { worktreeUri }),
-      ...(closedAt === undefined ? {} : { closedAt }),
-      ...(parentAgentId === undefined ? {} : { parentAgentId }),
-    };
-  }
-
-  private parentAgentId(agentId: AgentId): AgentId | undefined {
-    const edge = this.database.get(
-      "SELECT parent_agent_id FROM agent_edges WHERE child_agent_id = ?",
-      agentId,
-    );
-    return edge === undefined
-      ? undefined
-      : (asString(edge, "parent_agent_id") as AgentId);
-  }
-
-  private eventFromRow(row: SqlRow): RunEvent {
-    const now = asString(row, "created_at");
-    return {
-      createdAt: now,
-      id: asString(row, "id") as RunEvent["id"],
-      payload: parseJson<JsonObject>(asString(row, "payload_json")),
-      runId: asString(row, "run_id") as RunId,
-      sequence: asNumber(row, "seq"),
-      type: asString(row, "type") as RunEventType,
-      updatedAt: now,
-    };
-  }
-
-  private sessionEpochFromRow(row: SqlRow): SessionEpoch {
-    const endedAt = optionalString(row, "ended_at");
-    const endReason = optionalString(row, "end_reason");
-    const handoffContextSnapshotId = optionalString(
-      row,
-      "handoff_context_snapshot_id",
-    );
-    return {
-      agentId: asString(row, "agent_id") as AgentId,
-      createdAt: asString(row, "created_at"),
-      id: asString(row, "id") as SessionEpoch["id"],
-      model: asString(row, "model"),
-      ordinal: asNumber(row, "ordinal"),
-      provider: asString(row, "provider"),
-      startedAt: asString(row, "started_at"),
-      updatedAt: asString(row, "updated_at"),
-      ...(endedAt === undefined ? {} : { endedAt }),
-      ...(handoffContextSnapshotId === undefined
-        ? {}
-        : {
-            handoffContextSnapshotId:
-              handoffContextSnapshotId as ContextSnapshotId,
-          }),
-      ...(endReason === undefined
-        ? {}
-        : {
-            endReason: endReason as Exclude<
-              SessionEpoch["endReason"],
-              undefined
-            >,
-          }),
-    };
-  }
-
   private timestamp(): string {
     return this.clock.now().toISOString();
   }
-}
-
-function asString(row: SqlRow, key: string): string {
-  const value = row[key];
-  if (typeof value !== "string")
-    throw new Error(`Expected persisted column '${key}' to be a string.`);
-  return value;
-}
-
-function optionalString(row: SqlRow, key: string): string | undefined {
-  const value = row[key];
-  if (value === null || value === undefined) return undefined;
-  if (typeof value !== "string")
-    throw new Error(
-      `Expected persisted column '${key}' to be a nullable string.`,
-    );
-  return value;
-}
-
-function asNumber(row: SqlRow, key: string): number {
-  const value = row[key];
-  if (typeof value !== "number")
-    throw new Error(`Expected persisted column '${key}' to be a number.`);
-  return value;
-}
-
-function optionalNumber(row: SqlRow, key: string): number | undefined {
-  const value = row[key];
-  if (value === null || value === undefined) return undefined;
-  if (typeof value !== "number")
-    throw new Error(
-      `Expected persisted column '${key}' to be a nullable number.`,
-    );
-  return value;
-}
-
-function asOneOf<Value extends string>(
-  row: SqlRow,
-  key: string,
-  values: readonly Value[],
-): Value {
-  const value = asString(row, key);
-  if (!values.includes(value as Value))
-    throw new Error(`Unexpected persisted value '${value}' for '${key}'.`);
-  return value as Value;
-}
-
-function parseJson<Value>(value: string): Value {
-  return JSON.parse(value) as Value;
-}
-
-function stringify(value: unknown): string {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined)
-    throw new Error("Unable to serialize durable value.");
-  return encoded;
-}
-
-function summarizeTitle(prompt: string): string {
-  const normalized = prompt.replace(/\s+/g, " ").trim();
-  return normalized.length <= 96 ? normalized : `${normalized.slice(0, 93)}...`;
 }

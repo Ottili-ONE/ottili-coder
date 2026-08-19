@@ -72,6 +72,27 @@ documentation, licensing, provenance, and security gaps.
   adds a session-epoch-keyed `usage_entries` ledger and a partial-unique
   `cost_records.entry_key`, so a replayed turn cannot double-charge the shared
   budget (R43; `tests/integration/shared-budget.test.ts`).
+- Fixed KP-025 (a 40 ms `RunScheduler` lease TTL could expire mid-turn on a
+  loaded Windows CI runner even with its heartbeat running) and added
+  `tests/support/fs-cleanup.ts` (`removeTempDirectory`, `maxRetries: 10`) for
+  a Windows-only SQLite temp-directory `EBUSY` teardown race, applied across
+  every test file with the same fragile cleanup pattern.
+- Fixed KP-026, a real cross-platform defect the daemon-kill mission's first
+  Windows CI run caught: `new URL("C:\\Users\\x")` succeeds with `protocol`
+  `"c:"` (a single letter followed by `:` is syntactically a valid URL
+  scheme), so a Windows absolute `--workspace` path was silently treated as an
+  already-formed URI and every downstream `startsWith("file:")` check made the
+  daemon fall back to its own working directory — a Run that reported success
+  while acting on the wrong checkout entirely (ADR-015).
+- Partially decomposed `packages/control-plane/src/store.ts` (KP-024,
+  ADR-014): extracted `store/errors.ts`, `store/types.ts`,
+  `store/row-helpers.ts`, and `store/mappers.ts` (18 row mappers as free
+  functions of `(database, row)`). `RunStore` itself stays one class in one
+  file — SQLite's `transaction()` is not reentrant and most public methods
+  orchestrate several domains inside one transaction, so a further split
+  risked the very fencing invariants this session proved. 3698 → 3002 lines
+  in the main file, 889 lines in four focused modules; verified with zero
+  behavior change by the full test matrix.
 - Built the real long-horizon daemon-kill acceptance test: a bundled daemon
   against a real broken repository fixture and a deterministic BYOK-shaped
   HTTP provider plans a durable Task Graph, reproduces a failing test, is
@@ -85,15 +106,13 @@ documentation, licensing, provenance, and security gaps.
   approval), and `execute_command` swallowing stdout on failure so an agent
   could not see why a test runner failed.
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (89), integration (33), e2e (7), recovery
+  check:boundaries, typecheck, unit (90), integration (33), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
 
 - Compose MCP/LSP and checkpoints/worktrees into the live runtime turn with
   direct evidence (KP-013/KP-015).
-- Decompose `packages/control-plane/src/store.ts` (~3000 lines) into focused
-  modules without changing transactional behavior (KP-024).
 - Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
   SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
   coverage (R53–R56).
@@ -108,17 +127,19 @@ documentation, licensing, provenance, and security gaps.
 
 No specific source edit is active in this checkpoint. Resume with the ordered
 work in `NEXT_ACTIONS.md`, starting with re-confirming cross-platform CI on
-HEAD and then the `store.ts` decomposition.
+HEAD.
 
 ## Active validation
 
-Current full matrix: unit 89/89, integration 33/33, e2e 7/7, recovery 5/5;
+Current full matrix: unit 90/90, integration 33/33, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
 pass. The daemon-kill acceptance test (`tests/e2e/daemon-kill-mission.test.ts`)
 and the competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`) are the two highest-value
-regressions added this session. Historic failures remain recorded in
-`VALIDATION_LOG.md` as remediation provenance, not current failures.
+regressions added this session; the daemon-kill mission's first Windows CI run
+also caught a real cross-platform defect (KP-026) that no other platform or
+test could have found. Historic failures remain recorded in `VALIDATION_LOG.md`
+as remediation provenance, not current failures.
 
 ## Current blockers
 
@@ -139,10 +160,11 @@ deterministic tests are viable.
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after the
-  composition/hardening milestone.
+  composition/hardening milestone, the KP-024/025/026 fixes, and the partial
+  `store.ts` decomposition.
 - GitHub Actions run 32132026366 (commit `3f51516`) passed Ubuntu, macOS, and
-  Windows; several substantive commits have landed since then and need
-  re-verification on CI (`KP-023`).
+  Windows; two later runs failed on real defects now fixed (KP-025, KP-026).
+  Re-verification on CI for the current HEAD is still required (`KP-023`).
 - A historic 10 ms TTL duplicate execution and public completion bypass were
   reproduced before remediation; details remain in `VALIDATION_LOG.md`.
 

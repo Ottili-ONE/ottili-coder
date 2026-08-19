@@ -54,13 +54,18 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | `pnpm exec vitest run tests/integration/multi-agent-graph.test.ts` after raising the TTL to 500 ms and adding `removeTempDirectory` | PASS — 3/3. |
 | 2026-08-19 | Full root matrix after the KP-025 fix: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 89/89; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
+| 2026-08-19 | GitHub Actions matrix on `main` for commit `81fe209` (KP-025 fix) | FAIL — Ubuntu and macOS passed; Windows failed `pnpm test:e2e` in the new daemon-kill mission with repeated `Could not find 'packages/money/test/discount.test.mjs'`. |
+| 2026-08-19 | Root-caused the Windows-only `test:e2e` failure | Diagnosed as KP-026: `new URL("C:\\Users\\x")` succeeds with `protocol` `"c:"`, so `workspaceUri()` treated a Windows drive-letter path as an already-formed URL. Confirmed directly: `node -e 'new URL("C:\\Users\\x").protocol'` → `"c:"`. |
+| 2026-08-19 | `pnpm exec vitest run tests/unit/cli.test.ts` after the `WINDOWS_DRIVE_PATH` fix | PASS — 7/7, including the new regression proving a Windows drive-letter path produces a `file:` URI, not a `c:` one. |
+| 2026-08-19 | Decomposed `packages/control-plane/src/store.ts` into `store/{errors,types,mappers,row-helpers}.ts` (KP-024, ADR-014) | Mechanical extraction only; every extracted function's sole dependency (`database`) became an explicit parameter. Verified by full typecheck plus the entire test matrix, including the real-`SIGKILL` daemon-kill mission and the competing-daemon-takeover suite, with zero behavior change. |
+| 2026-08-19 | Full root matrix after the KP-024/KP-026 fixes: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package, bench | PASS — unit 90/90; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+
 ## Still-required direct validation
 
-The local matrix is green, cross-platform CI was confirmed green on an
-earlier commit, and the delayed real provider/tool competing-daemon takeover
-is now proven directly (`tests/recovery/competing-daemon-takeover.test.ts`,
-`tests/e2e/daemon-kill-mission.test.ts`). The final evidence still needs: a
-green GitHub Actions matrix re-confirmed on the current HEAD, the `store.ts`
-decomposition validated against the same matrix, MCP/LSP and
-checkpoint/worktree composition evidence, and fresh documentation,
-dependency-license, provenance, and security audits on the final worktree.
+The local matrix is green, the delayed real provider/tool competing-daemon
+takeover is proven directly, and a real cross-platform defect (KP-026) that
+only the Windows leg of CI could have caught was found and fixed. The final
+evidence still needs: a green GitHub Actions matrix re-confirmed on the
+current HEAD, MCP/LSP and checkpoint/worktree composition evidence, and fresh
+documentation, dependency-license, provenance, and security audits on the
+final worktree.

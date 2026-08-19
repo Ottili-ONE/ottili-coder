@@ -2,17 +2,15 @@
 
 Since the last revision, Task Graph/Agent Graph delegation, live context
 composition, provider failover, stagnation response, lease-fencing hardening,
-and shared multi-agent budgets were implemented with direct regressions
-(R12/R17/R22/R23/R43, R66). Continue in this order; do not declare
+shared multi-agent budgets, the real daemon-kill acceptance test, and a
+partial `store.ts` decomposition were implemented with direct regressions
+(R12/R17/R22/R23/R43/R66). Continue in this order; do not declare
 `TRUE_COMPLETE` while any item remains open.
 
-0. Re-confirm a green GitHub Actions matrix on Ubuntu, macOS, and Windows on
+1. Re-confirm a green GitHub Actions matrix on Ubuntu, macOS, and Windows on
    the current HEAD (`KP-023`) — the last confirmed-green run was on an
    earlier commit. Treat CI, not the local matrix, as authoritative platform
    evidence.
-1. Decompose `packages/control-plane/src/store.ts` (~3000 lines, 81 public
-   methods) into focused modules under `src/store/` without changing
-   transactional behavior or losing any fencing invariant (`KP-024`).
 2. Compose MCP and LSP into the live runtime capability/permission/approval
    system rather than leaving them isolated demos; keep default-deny and no
    dynamic binary downloads at core startup (`KP-013`, `KP-015`).
