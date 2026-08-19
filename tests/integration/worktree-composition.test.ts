@@ -15,7 +15,11 @@ import {
   createWorkspaceTools,
   type WorktreeProvisioner,
 } from "@ottili/runtime";
-import { GitService, WorktreeManager } from "@ottili/workspace";
+import {
+  GitService,
+  WorktreeManager,
+  canonicalizePath,
+} from "@ottili/workspace";
 import { afterEach, describe, expect, it } from "vitest";
 
 const execFile = promisify(execFileCallback);
@@ -40,8 +44,16 @@ async function fixtureRepository(): Promise<{
   readonly parent: string;
   readonly workspacePath: string;
 }> {
-  const parent = await mkdtemp(join(tmpdir(), "ottili-worktree-fixture-"));
-  directories.push(parent);
+  const raw = await mkdtemp(join(tmpdir(), "ottili-worktree-fixture-"));
+  directories.push(raw);
+  // Canonicalized once, here: `os.tmpdir()` sits behind a symlink on macOS
+  // (`/var` -> `/private/var`), and `GitWorktreeProvisioner` always reports
+  // a worktree's path the way Git does — canonical. A sandbox writableRoots
+  // entry built from the raw, unresolved form would fail to prefix-match
+  // the namespaced scope of a write inside that worktree, denying it
+  // silently (the same root cause as ADR-009/KP-019, reached through a
+  // fixture's own sandbox config this time, not the product).
+  const parent = await canonicalizePath(raw);
   const workspacePath = join(parent, "repo");
   await mkdir(workspacePath);
   await git(workspacePath, ["init", "--initial-branch=main"]);
