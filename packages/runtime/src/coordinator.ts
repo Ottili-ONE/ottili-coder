@@ -68,7 +68,7 @@ export interface RunCoordinatorOptions {
 export type WorkspaceToolResolver = (input: {
   readonly runId: string;
   readonly workspaceUri: string;
-}) => ToolRegistry;
+}) => ToolRegistry | Promise<ToolRegistry>;
 
 /**
  * Bridges a stateless model/tool turn with the lease-fenced durable Run. The
@@ -135,7 +135,7 @@ export class RunCoordinator implements RunActionExecutor {
       type: "agent.turn_started",
     });
 
-    const sourceTools = this.resolveTools(mission.workspaceUri, run.id);
+    const sourceTools = await this.resolveTools(mission.workspaceUri, run.id);
     const durableTools = this.createDurableTools(
       input.lease,
       acting,
@@ -785,10 +785,13 @@ export class RunCoordinator implements RunActionExecutor {
     return { requeue: true };
   }
 
-  private resolveTools(workspaceUri: string, runId: string): ToolRegistry {
+  private async resolveTools(
+    workspaceUri: string,
+    runId: string,
+  ): Promise<ToolRegistry> {
     return this.options.tools instanceof ToolRegistry
       ? this.options.tools
-      : this.options.tools({ runId, workspaceUri });
+      : await this.options.tools({ runId, workspaceUri });
   }
 
   private handleFailure(

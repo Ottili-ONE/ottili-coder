@@ -228,3 +228,49 @@ Windows crash, so the fix belongs in the product's `SqliteDatabase`, not in
 the test. The same drive-letter-as-URL-scheme root cause as ADR-015 was also
 found and fixed proactively in the LSP config validator (`assertAbsoluteUri`,
 KP-028) while auditing for the same pattern elsewhere in the codebase.
+
+## ADR-017 — MCP and LSP compose into the same durable capability pipeline every other tool uses; the resolver becomes async to allow it
+
+**Decision:** `createMcpTools` (`packages/runtime/src/mcp-tools.ts`) turns each
+of an `McpServerSupervisor`'s _connected_ servers' declared tools into
+`ToolDefinition`s via `@ottili/integrations`' existing `toMcpToolDefinition`
+conservative-default mapper (`external`+`network` required,
+`requiresApproval: true`, a `service:mcp:<server>` resource scope), wrapping
+each call through the MCP client with output truncation. A disconnected
+server contributes no tools. `LspServerManager`
+(`packages/runtime/src/lsp-tools.ts`) does two things: it implements the
+coordinator's existing `DiagnosticsProvider` port (so LSP diagnostics reach
+the context compiler the same way any other context source does) and exposes
+three read-only tools (`lsp_diagnostics`, `lsp_document_symbols`,
+`lsp_definition`) that need no approval. Both are wired into
+`apps/cli/src/daemon-process.ts` behind opt-in, declarative-only env config
+(`OTTILI_MCP_SERVERS`, `OTTILI_LSP_SERVERS`) that names an
+already-installed `command` — nothing resolves a package name or downloads a
+binary at daemon startup. `RunCoordinator`'s `WorkspaceToolResolver` type
+widened from a sync `(input) => ToolRegistry` to `(input) => ToolRegistry |
+Promise<ToolRegistry>` so the daemon's tool factory can `await
+createMcpTools(...)` per Run without the coordinator special-casing MCP.
+
+**Why:** The mission's explicit instruction was "do not leave MCP/LSP as
+isolated demos — integrate them into the runtime capability system" following
+permissions, approval policy, sandbox policy, resource scopes, and Run/Agent
+attribution exactly like any other tool. Reusing `toMcpToolDefinition` and the
+coordinator's existing `authorizeTool`/lease/resource-lock pipeline (rather
+than inventing a parallel MCP-specific policy path) means an MCP tool call is
+provably subject to the same default-deny sandbox check, the same durable
+approval gate, and the same resource-lock namespacing as `execute_command` or
+any workspace-write tool — proven directly by
+`tests/integration/mcp-lsp-composition.test.ts`. Building that test surfaced
+a real lesson, not a product bug: an MCP tool's declared `network` permission
+is checked against the agent's _sandbox_ (`sandbox.network.enabled`, default
+`false`) independently of, and before, the approval-prompt check —
+`evaluatePermission`'s most-restrictive-wins ranking means a sandbox-capability
+`deny` outranks an approval `prompt`. The first draft of the integration test
+assumed the default sandbox would approval-gate the call; it was actually
+denied outright before ever reaching a durable approval or the MCP server.
+That is correct default-deny behavior, so the fix was to the test, not the
+code — it now has one case proving the default-sandbox denial and a second,
+separately-scoped case with an explicit network-enabled sandbox proving the
+approval-then-execute path. `LspServerManager`'s tools stay unapproved by
+design: `sideEffectClass: "none"`/`"read"` never carries `requiresApproval`,
+matching every other read-only tool in the runtime.

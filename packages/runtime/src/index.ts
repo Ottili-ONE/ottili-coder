@@ -3,6 +3,8 @@ export * from "./builtins.js";
 export * from "./context.js";
 export * from "./command-target.js";
 export * from "./engine.js";
+export * from "./lsp-tools.js";
+export * from "./mcp-tools.js";
 export * from "./mission-tools.js";
 export * from "./anthropic.js";
 export * from "./gemini.js";

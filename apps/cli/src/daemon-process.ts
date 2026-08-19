@@ -5,13 +5,25 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  McpServerCatalog,
+  McpServerSupervisor,
+  NodeMcpTransportFactory,
+  parseMcpServerConfig,
+  parseLspServerConfig,
+  type McpServerConfig,
+} from "@ottili/integrations";
 import { DurableDaemon } from "@ottili/server";
 import {
+  LspServerManager,
   ProviderConfigurationError,
   ProviderFailure,
   RunCoordinator,
+  ToolRegistry,
+  createMcpTools,
   createProviderRuntime,
   createWorkspaceTools,
+  type LspServerTemplate,
   type ProviderConfig,
   type ProviderKind,
   type TurnProvider,
@@ -117,19 +129,58 @@ async function main(): Promise<void> {
   await mkdir(configDirectory, { recursive: true, mode: 0o700 });
   const fallbackWorkspace = process.env.OTTILI_CODER_WORKSPACE ?? process.cwd();
   const { model, provider } = resolveProviderRuntime();
+
+  // MCP/LSP are opt-in capability sources composed into every turn's tool
+  // registry and (for LSP) the context compiler's diagnostics port, going
+  // through the exact same durable policy/approval/resource-lock pipeline as
+  // every other tool once RunCoordinator wraps them.
+  const mcpServers = mcpServersFromEnvironment();
+  const mcpSupervisor =
+    mcpServers.length === 0
+      ? undefined
+      : new McpServerSupervisor(
+          new McpServerCatalog(mcpServers),
+          new NodeMcpTransportFactory(),
+        );
+  let mcpReconcileTimer: ReturnType<typeof setInterval> | undefined;
+  if (mcpSupervisor !== undefined) {
+    await mcpSupervisor.reconcile();
+    mcpReconcileTimer = setInterval(() => {
+      void mcpSupervisor.reconcile();
+    }, 5_000);
+    mcpReconcileTimer.unref();
+  }
+  const lspServers = lspServersFromEnvironment();
+  const lspManager =
+    lspServers.length === 0 ? undefined : new LspServerManager(lspServers);
+
   const daemon = new DurableDaemon({
     allowProtocolShutdown: true,
     databasePath:
       process.env.OTTILI_CODER_DATABASE ?? join(configDirectory, "coder.db"),
     executor: (store) =>
       new RunCoordinator(store, {
+        ...(lspManager === undefined
+          ? {}
+          : { context: { diagnostics: lspManager } }),
         model,
         provider,
-        tools: ({ workspaceUri }) =>
-          createWorkspaceTools({
-            allowedCommands: allowedCommandsFromEnvironment(),
-            workspace: workspacePath(workspaceUri, fallbackWorkspace),
-          }),
+        tools: async ({ workspaceUri }) => {
+          const workspace = workspacePath(workspaceUri, fallbackWorkspace);
+          const registries = [
+            createWorkspaceTools({
+              allowedCommands: allowedCommandsFromEnvironment(),
+              workspace,
+            }),
+            ...(mcpSupervisor === undefined
+              ? []
+              : [await createMcpTools(mcpSupervisor)]),
+            ...(lspManager === undefined
+              ? []
+              : [lspManager.createTools(workspace)]),
+          ];
+          return mergeToolRegistries(registries);
+        },
       }),
     scheduler: { pollIntervalMs: 500 },
     server: {
@@ -143,7 +194,18 @@ async function main(): Promise<void> {
   await daemon.start();
   let closing: Promise<void> | undefined;
   const shutdown = async (): Promise<void> => {
-    closing ??= daemon.close();
+    closing ??= (async () => {
+      if (mcpReconcileTimer !== undefined) clearInterval(mcpReconcileTimer);
+      await daemon.close();
+      await Promise.all([
+        ...(mcpSupervisor === undefined
+          ? []
+          : mcpSupervisor
+              .list()
+              .map((status) => mcpSupervisor.disconnect(status.id))),
+        lspManager?.close(),
+      ]);
+    })();
     await closing;
   };
   // POSIX hosts stop daemons with signals. Windows has no graceful signal, so
@@ -152,6 +214,21 @@ async function main(): Promise<void> {
   process.once("SIGTERM", () => void shutdown());
   await daemon.whenShutdownRequested();
   await shutdown();
+}
+
+/** Later registries never silently replace an earlier tool of the same name. */
+function mergeToolRegistries(
+  registries: readonly ToolRegistry[],
+): ToolRegistry {
+  const merged = new ToolRegistry();
+  for (const registry of registries) {
+    for (const definition of registry.list()) {
+      if (merged.get(definition.name) === undefined) {
+        merged.register(definition);
+      }
+    }
+  }
+  return merged;
 }
 
 function workspacePath(workspaceUri: string, fallback: string): string {
@@ -170,6 +247,40 @@ function allowedCommandsFromEnvironment(): readonly string[] {
     .split(",")
     .map((command) => command.trim())
     .filter((command) => command.length > 0);
+}
+
+/**
+ * MCP/LSP servers are opt-in and declarative only: a JSON array of server
+ * configs naming an already-installed `command`. Nothing here resolves a
+ * package name, downloads a binary, or runs a shell string — the same
+ * default-deny posture as `OTTILI_ALLOWED_COMMANDS`.
+ */
+function mcpServersFromEnvironment(): readonly McpServerConfig[] {
+  const configured = process.env.OTTILI_MCP_SERVERS;
+  if (configured === undefined || configured.trim().length === 0) return [];
+  const parsed: unknown = JSON.parse(configured);
+  if (!Array.isArray(parsed)) {
+    throw new Error("OTTILI_MCP_SERVERS must be a JSON array.");
+  }
+  return parsed.map((entry) =>
+    parseMcpServerConfig(
+      typeof entry === "object" && entry !== null && !("desiredState" in entry)
+        ? { ...entry, desiredState: "connected" }
+        : entry,
+    ),
+  );
+}
+
+function lspServersFromEnvironment(): readonly LspServerTemplate[] {
+  const configured = process.env.OTTILI_LSP_SERVERS;
+  if (configured === undefined || configured.trim().length === 0) return [];
+  const parsed: unknown = JSON.parse(configured);
+  if (!Array.isArray(parsed)) {
+    throw new Error("OTTILI_LSP_SERVERS must be a JSON array.");
+  }
+  // `rootUri` is intentionally never read from configuration: it is filled
+  // in per Run workspace by LspServerManager, not declared statically.
+  return parsed.map((entry) => parseLspServerConfig(entry));
 }
 
 void main().catch((error: unknown) => {

@@ -70,16 +70,22 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | Full root matrix after the revised KP-027 fix (whole-initialization retry) and KP-028: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 93/93; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
 | 2026-08-19 | **GitHub Actions matrix on `main`, commit `9a5f310` (run 32231877726)** | **PASS — Ubuntu, macOS, and Windows all green together.** First confirmed full cross-platform pass since the composition/hardening milestone began; closes KP-023. |
+| 2026-08-19 | `pnpm exec vitest run tests/integration/mcp-lsp-composition.test.ts tests/unit/mcp-lsp-tools.test.ts tests/unit/mcp-lsp.test.ts` after composing MCP/LSP into the live runtime (`packages/runtime/src/mcp-tools.ts`, `lsp-tools.ts`; daemon wiring in `apps/cli/src/daemon-process.ts`) | PASS — 3/3 integration, 4/4 + 7/7 unit. The first draft of the MCP integration test wrongly assumed the default sandbox would approval-gate an MCP tool call; debugging showed it is actually denied outright (sandbox-capability `deny` outranks approval `prompt` for the `network` action), so the test was split into a default-sandbox-denial case and a network-enabled-sandbox approval-then-execute case (ADR-017). |
+| 2026-08-19 | Full root matrix after MCP/LSP composition: lint, typecheck, format:check, check:eol, check:boundaries, test, test:integration, test:recovery, test:e2e, build, test:package | PASS — unit 97/97; integration 36/36; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
 ## Still-required direct validation
 
-The local matrix is green, the delayed real provider/tool competing-daemon
-takeover is proven directly, and GitHub Actions run 32231877726 (commit
-`9a5f310`) confirms Ubuntu, macOS, and Windows all pass together — the actual
-platform requirement, not just the local (Linux) matrix. Four real
-cross-platform defects (KP-025 through KP-028) were found and fixed getting
-there, each one only reachable through a real Windows CI run. The final
-evidence still needs: re-confirmation of this green matrix on every
-subsequent substantive change, MCP/LSP and checkpoint/worktree composition
-evidence, and fresh documentation, dependency-license, provenance, and
-security audits on the final worktree.
+The local matrix is green (now including MCP/LSP composition evidence), the
+delayed real provider/tool competing-daemon takeover is proven directly, and
+GitHub Actions run 32231877726 (commit `9a5f310`) confirmed Ubuntu, macOS, and
+Windows all pass together — but that run predates the MCP/LSP composition
+change, so cross-platform CI must be re-confirmed on the new HEAD before it
+counts as platform evidence for this feature. Four real cross-platform
+defects (KP-025 through KP-028) were found and fixed getting to that prior
+green run, each one only reachable through a real Windows CI run — KP-028 in
+particular (a Windows drive-letter path misread as an LSP `rootUri` URI
+scheme) was fixed proactively before LSP had any live code path, and that fix
+is now load-bearing. The final evidence still needs: a fresh green
+cross-platform CI run on this HEAD, checkpoint/worktree composition evidence,
+and fresh documentation, dependency-license, provenance, and security audits
+on the final worktree.

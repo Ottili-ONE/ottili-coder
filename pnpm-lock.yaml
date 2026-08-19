@@ -129,6 +129,9 @@ importers:
       '@ottili/core':
         specifier: workspace:*
         version: link:../core
+      '@ottili/integrations':
+        specifier: workspace:*
+        version: link:../integrations
       '@ottili/protocol':
         specifier: workspace:*
         version: link:../protocol

@@ -8,16 +8,16 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green, the composition/hardening milestone below is closed, and GitHub
-Actions has confirmed Ubuntu/macOS/Windows all pass together on commit
-`9a5f310` — but the Requirement Ledger still has open `UNPROVEN` entries and
-direct final audits remain.
+green and MCP/LSP composition is now closed with direct evidence, but GitHub
+Actions has not yet re-confirmed Ubuntu/macOS/Windows on this HEAD (the last
+confirmed green run, commit `9a5f310`, predates this change), the Requirement
+Ledger still has open `UNPROVEN` entries, and direct final audits remain.
 
 ## Current milestone
 
-M10: compose remaining isolated services (MCP/LSP, checkpoints/worktrees) into
-the live runtime, decompose `store.ts`, then close provider/backend/auth,
-documentation, licensing, provenance, and security gaps.
+M10: compose remaining isolated services (checkpoints/worktrees) into the live
+runtime, decompose `store.ts` further if warranted, then close provider/
+backend/auth, documentation, licensing, provenance, and security gaps.
 
 ## Completed milestones
 
@@ -121,14 +121,32 @@ documentation, licensing, provenance, and security gaps.
   `writableRoots` entry unmatchable (every workspace write silently required
   approval), and `execute_command` swallowing stdout on failure so an agent
   could not see why a test runner failed.
+- Composed MCP and LSP into the live runtime capability/permission/approval
+  system rather than leaving them isolated demos (R39/R40, KP-013/KP-015):
+  `createMcpTools` (`packages/runtime/src/mcp-tools.ts`) turns each connected
+  MCP server's declared tools into durable `ToolDefinition`s carrying MCP's
+  conservative default policy and routes every call through the coordinator's
+  existing `authorizeTool`/lease/resource-lock pipeline; `LspServerManager`
+  (`packages/runtime/src/lsp-tools.ts`) implements the `DiagnosticsProvider`
+  context port and exposes read-only, unapproved `lsp_diagnostics`/
+  `lsp_document_symbols`/`lsp_definition` tools. Both compose into the daemon
+  behind opt-in, declarative-only env config (`OTTILI_MCP_SERVERS`,
+  `OTTILI_LSP_SERVERS`) with no dynamic binary download at startup;
+  `RunCoordinator`'s `WorkspaceToolResolver` widened to allow an async tool
+  factory. `tests/integration/mcp-lsp-composition.test.ts` proves a default
+  sandbox denies an MCP call outright (network disabled), an explicit
+  network-enabled sandbox gates the same call behind a durable approval that
+  then executes and locks under the tool's declared resource scope, and a
+  read-only LSP tool executes unapproved with its diagnostics feeding the
+  _next_ turn's compiled context (ADR-017).
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (93), integration (33), e2e (7), recovery
+  check:boundaries, typecheck, unit (97), integration (36), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
 
-- Compose MCP/LSP and checkpoints/worktrees into the live runtime turn with
-  direct evidence (KP-013/KP-015).
+- Compose checkpoints/worktrees into the live runtime turn with direct
+  evidence (KP-015, now narrowed to checkpoints/worktrees only).
 - Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
   SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
   coverage (R53–R56).
@@ -141,21 +159,26 @@ documentation, licensing, provenance, and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. Resume with the ordered
-work in `NEXT_ACTIONS.md`, starting with re-confirming cross-platform CI on
-HEAD.
+No specific source edit is active in this checkpoint. MCP/LSP composition
+(the top item in the prior `NEXT_ACTIONS.md`) is committed and locally
+validated. Resume with the ordered work in `NEXT_ACTIONS.md`, starting with
+pushing this change and re-confirming cross-platform CI on the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 93/93, integration 33/33, e2e 7/7, recovery 5/5;
+Current full matrix: unit 97/97, integration 36/36, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass. The daemon-kill acceptance test (`tests/e2e/daemon-kill-mission.test.ts`)
-and the competing-daemon takeover suite
-(`tests/recovery/competing-daemon-takeover.test.ts`) are the two highest-value
-regressions added this session; the daemon-kill mission's first Windows CI run
-also caught a real cross-platform defect (KP-026) that no other platform or
-test could have found. Historic failures remain recorded in `VALIDATION_LOG.md`
-as remediation provenance, not current failures.
+pass, all re-run after the MCP/LSP composition change. The daemon-kill
+acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the competing-daemon
+takeover suite (`tests/recovery/competing-daemon-takeover.test.ts`), and now
+`tests/integration/mcp-lsp-composition.test.ts` (default-sandbox denial,
+approval-gated execution once network is granted, and read-only LSP tool plus
+next-turn diagnostics context) are the highest-value regressions added this
+session. The daemon-kill mission's first Windows CI run also caught a real
+cross-platform defect (KP-026) that no other platform or test could have
+found. Historic failures remain recorded in `VALIDATION_LOG.md` as
+remediation provenance, not current failures. Cross-platform CI itself is not
+yet re-confirmed on this HEAD.
 
 ## Current blockers
 
@@ -175,6 +198,10 @@ deterministic tests are viable.
 ## Latest important commands/results
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after composing
+  MCP/LSP into the live runtime (unit 97/97, integration 36/36, e2e 7/7,
+  recovery 5/5) — not yet re-confirmed on GitHub Actions.
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after the
   composition/hardening milestone, the KP-024/025/026 fixes, and the partial
   `store.ts` decomposition.
@@ -193,7 +220,7 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Read `REQUIREMENTS.md`, `KNOWN_PROBLEMS.md`, `NEXT_ACTIONS.md`, and
-`VALIDATION_LOG.md`; push and re-confirm the cross-platform CI matrix on HEAD,
-then work `NEXT_ACTIONS.md` in order starting with the `store.ts`
-decomposition, and rerun all final validation after the final source change.
+Commit and push the MCP/LSP composition change, re-confirm the cross-platform
+CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in order starting with
+composing checkpoints/worktrees into the runtime turn, and rerun all final
+validation after the final source change.
