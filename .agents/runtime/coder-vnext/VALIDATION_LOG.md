@@ -78,6 +78,7 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | GitHub Actions matrix on `main`, commit `171d582` (KP-029 fix, run 32256052435) | FAIL — Ubuntu only, unrelated to the commit's own change: `tests/recovery/competing-daemon-takeover.test.ts`'s "lets a successor finish work a killed daemon started" timed out at 15000 ms. Windows and macOS passed (confirming the KP-029 fix itself was correct). |
 | 2026-08-19 | Fixed KP-030 (a second short-lease-TTL flake, same class as KP-025) and ran `pnpm exec vitest run tests/recovery/competing-daemon-takeover.test.ts` three consecutive times | PASS — 4/4 every run, ~0.87s test time each. |
 | 2026-08-19 | Full root matrix after the KP-030 fix: lint, typecheck, format:check, test:recovery | PASS — recovery 5/5; lint/typecheck/format:check clean. |
+| 2026-08-19 | **GitHub Actions matrix on `main`, commit `afa6ce0` (run 32256548228)** | **PASS — Ubuntu, macOS, and Windows all green together**, confirming MCP/LSP composition (R39/R40) plus the KP-029/KP-030 fixes on a real cross-platform matrix, not just local Linux. |
 
 ## Still-required direct validation
 

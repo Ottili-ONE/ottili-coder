@@ -8,10 +8,12 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ## Current stop level
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
-green and MCP/LSP composition is now closed with direct evidence, but GitHub
-Actions has not yet re-confirmed Ubuntu/macOS/Windows on this HEAD (the last
-confirmed green run, commit `9a5f310`, predates this change), the Requirement
-Ledger still has open `UNPROVEN` entries, and direct final audits remain.
+green, MCP/LSP composition is closed with direct evidence, and GitHub Actions
+run 32256548228 (commit `afa6ce0`) confirmed Ubuntu/macOS/Windows all pass
+together — but that run also cost two extra round-trips (KP-029, a test-only
+Windows `file://` URI defect; KP-030, a second short-lease-TTL CI flake on
+Ubuntu, same class as KP-025), and the Requirement Ledger still has open
+`UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
