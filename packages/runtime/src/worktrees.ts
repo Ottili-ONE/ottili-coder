@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { GitService, WorktreeManager } from "@ottili/workspace";
@@ -30,6 +31,7 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     );
     const existing = await manager.find(path);
     if (existing !== undefined) return existing.path;
+    await mkdir(dirname(path), { recursive: true });
     const created = await manager.create({ detach: true, path });
     return created.path;
   }

@@ -234,11 +234,20 @@ describe("isolated worktrees for delegated agents", () => {
     if (worktreeUri === undefined) throw new Error("Worktree was not set.");
     const worktreePath = fileURLToPath(worktreeUri);
 
+    // Fails with the tool's own error message (rather than a bare `false`)
+    // if the write itself failed instead of merely landing elsewhere.
+    const delegateWrite = firstStore
+      .listEvents(runId)
+      .filter((event) => event.type === "tool.call_finished")
+      .at(-1);
+    expect(delegateWrite?.payload).toMatchObject({ success: true });
+
     // The delegate's write landed inside its own worktree, never the
     // coordinator's primary checkout.
-    expect(await fileExists(join(worktreePath, "delegate-note.txt"))).toBe(
-      true,
-    );
+    expect(
+      await fileExists(join(worktreePath, "delegate-note.txt")),
+      `worktreePath=${worktreePath}`,
+    ).toBe(true);
     expect(await fileExists(join(workspacePath, "delegate-note.txt"))).toBe(
       false,
     );
