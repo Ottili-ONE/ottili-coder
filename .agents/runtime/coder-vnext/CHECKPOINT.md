@@ -24,15 +24,15 @@ gained real, concrete progress this pass — `ottili-coder models`/
 `ottili-coder mcp` close its literal missing-CLI-surface gap, Build/Plan/
 Debug/Ask is judged satisfied by the existing multi-agent redesign,
 `action.yml` is a real working composite GitHub Action self-tested by a
-new `action-smoke` CI job (ADR-023) — but stays UNPROVEN: interactive
-OAuth login is the one remaining genuine, documented, open gap. GitHub
-Actions run 32270519687 (commit `d299614`) confirmed Ubuntu/macOS/Windows
-all pass together, but that predates the `action.yml`/`action-smoke`
-addition — CI (now including the new `action-smoke` job) must be
-re-confirmed on the new HEAD. `KP-032` (an unexplained `LeaseFencedError`
-on a doc-only commit) has not recurred on any run since it was first
-observed. The Requirement Ledger still has open `UNPROVEN` entries with
-direct final audits remaining.
+new `action-smoke` CI job (ADR-023), now confirmed green end to end on a
+real runner after finding and fixing `KP-036` (a broken
+`cache-dependency-path` that the smoke test itself caught) — but stays
+UNPROVEN: interactive OAuth login is the one remaining genuine, documented,
+open gap. GitHub Actions run 32294770672 (commit `d44a583`) confirmed
+Ubuntu/macOS/Windows _and_ the new `action-smoke` job all pass together.
+`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit) has not
+recurred on any run since it was first observed. The Requirement Ledger
+still has open `UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
@@ -367,6 +367,22 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- GitHub Actions run 32294770672 (commit `d44a583`, 2026-08-19) confirmed
+  Ubuntu, macOS, Windows, _and_ the new `action-smoke` job all pass
+  together. The job log shows `action.yml` ran its full real sequence:
+  built the daemon/CLI, started the daemon, created Run
+  `run_105rwz9p9mqqd`, polled it, correctly detected and reported
+  `waiting_external` (no provider credentials configured), and stopped
+  the daemon. The immediately preceding commit (`b7d42bf`, `action.yml`'s
+  introduction) failed `action-smoke` on its first real run: fixed as
+  `KP-036` (see below).
+- GitHub Actions run 32294498714 (commit `b7d42bf`, 2026-08-19): `validate`
+  passed on all three platforms, but `action-smoke` failed at the
+  `setup-node` step — `cache-dependency-path` resolved to a path with a
+  literal `.` segment for the self-referential `uses: ./` case this job
+  exercises, which `setup-node` explicitly rejects. Found directly in the
+  job log. Fixed in `d44a583` by dropping the pnpm cache from that step
+  entirely (`KP-036`).
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after adding
   `ottili-coder models`/`ottili-coder mcp` (unit 111/111, integration 46/46,
@@ -445,8 +461,9 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push `action.yml`/`action-smoke`, watch the `action-smoke` job
-specifically (a genuinely new CI job, not just the existing `validate`
-matrix) alongside the platform matrix on the new HEAD, then work
-`NEXT_ACTIONS.md` in order starting with expanding the OCF benchmark (R34).
-Rerun all final validation after the final source change.
+`action.yml`/`action-smoke` are committed, pushed, and confirmed green on a
+real GitHub Actions runner (run 32294770672, all four jobs). R51 is closed
+except for the one documented, deliberately-open OAuth gap. Work
+`NEXT_ACTIONS.md` in order starting with expanding the OCF benchmark with
+representative datasets and a documented tokenizer strategy (R34,
+`KP-010`).

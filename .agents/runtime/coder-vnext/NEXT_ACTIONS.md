@@ -14,15 +14,16 @@ remote/hybrid execution-backend contract tests), and auditing R51 (adding the
 literal missing `ottili-coder models`/`ottili-coder mcp` CLI surface; judging
 Build/Plan/Debug/Ask satisfied by the existing `AgentRole`/`--permission-mode`
 redesign; building `action.yml`, a real composite GitHub Action wrapping the
-headless Run API, self-tested by a new `action-smoke` CI job; recording OAuth
-login as the one genuinely open R51 gap) were implemented/fixed with direct
-regressions (R12/R17/R18/R22/R23/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R66).
-GitHub Actions run 32270519687 (commit `d299614`) confirmed Ubuntu, macOS, and
-Windows all pass together, though that predates the `action.yml`/
-`action-smoke` addition below — CI must be re-confirmed on the new HEAD, and
-this is the first commit that needs the new `action-smoke` job to pass too,
-not just the `validate` matrix. Continue in this order; do not declare
-`TRUE_COMPLETE` while any item remains open.
+headless Run API, self-tested by a new `action-smoke` CI job — including
+finding and fixing `KP-036`, a real defect the smoke test's own first run
+caught; recording OAuth login as the one genuinely open R51 gap) were
+implemented/fixed with direct regressions
+(R12/R17/R18/R22/R23/R37/R39/R40/R43/R45/R46/R47/R49/R54/R56/R66). GitHub
+Actions run 32294770672 (commit `d44a583`) confirmed Ubuntu, macOS, Windows,
+and the new `action-smoke` job all pass together — the log shows
+`action.yml` ran its real sequence end to end (build, daemon start, Run
+creation, poll, correct non-completion detection, daemon stop). Continue in
+this order; do not declare `TRUE_COMPLETE` while any item remains open.
 
 1. Expand the OCF benchmark with representative datasets and a documented
    tokenizer strategy (R34, `KP-010`).
