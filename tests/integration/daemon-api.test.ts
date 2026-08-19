@@ -23,6 +23,10 @@ describe("daemon HTTP + SSE boundary", () => {
       status: "ok",
       version: "v1",
     });
+    expect(await firstClient.ready()).toEqual({ ready: true });
+    expect(await firstClient.version()).toMatchObject({
+      protocolVersion: "v1",
+    });
     const created = await firstClient.createRun({
       mission: {
         prompt: "Keep working after this client disappears.",
@@ -98,6 +102,28 @@ describe("daemon HTTP + SSE boundary", () => {
     );
     expect(paused.run.revision).toBe(retried.run.revision);
     expect(retried.run.status).toBe("paused");
+
+    // The SDK's own list call, not just the Store's — appended last so it
+    // does not perturb the exact event-sequence assertions above.
+    const checkpointLease = store.acquireLease({
+      executorId: "daemon-api-test",
+      runId: created.run.id,
+      ttlMs: 60_000,
+    });
+    store.createCheckpoint({
+      label: "task_completed",
+      lease: checkpointLease,
+      manifest: { tasks: [] },
+      reason: "Proves the SDK's list call, not just the Store's.",
+      runId: created.run.id,
+    });
+    expect(
+      (await attachedClient.checkpoints(created.run.id)).checkpoints,
+    ).toEqual([
+      expect.objectContaining({
+        reason: "Proves the SDK's list call, not just the Store's.",
+      }),
+    ]);
   });
 
   it("stops cooperatively over the protocol only for the running instance", async () => {

@@ -10,21 +10,26 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
 green; MCP/LSP, worktree, and checkpoint composition (creation and
 workspace-only restore) are all closed with direct evidence (`KP-015`
-fully resolved), and `KP-031` (sandbox `writableRoots` not widening to a
-delegate's worktree) is fixed (ADR-020). GitHub Actions run 32265182592
-(commit `ded0e49`) confirmed Ubuntu/macOS/Windows all pass together on the
-checkpoint-restore change itself. `KP-032` (an unexplained
-`LeaseFencedError` on a doc-only commit) has not recurred on any of the
-three runs since it was first observed. The Requirement Ledger still has
-open `UNPROVEN` entries with direct final audits remaining.
+fully resolved), `KP-031` (sandbox `writableRoots` not widening to a
+delegate's worktree) is fixed (ADR-020), and R54/R56's specific stated
+coverage gaps (SSE reconnect across a dropped/restarted daemon; explicit
+CLI `resume` lifecycle) are now closed with direct evidence — both moved
+UNPROVEN → PROVEN. GitHub Actions run 32265182592 (commit `ded0e49`)
+confirmed Ubuntu/macOS/Windows all pass together, but that predates the
+v2 API coverage change below, so CI must be re-confirmed on the new HEAD.
+`KP-032` (an unexplained `LeaseFencedError` on a doc-only commit) has not
+recurred on any of the three runs since it was first observed. The
+Requirement Ledger still has open `UNPROVEN` entries with direct final
+audits remaining.
 
 ## Current milestone
 
 M11: all previously-isolated capability primitives are composed into the
 live runtime (MCP/LSP/worktrees/checkpoints, including workspace-only
-restore), and KP-031 is fixed. Decompose `store.ts` further if warranted,
-then close v2 API/backend/auth/legacy-parity, documentation, licensing,
-provenance, and security gaps.
+restore), KP-031 is fixed, and R54/R56's specific coverage gaps are
+closed. Decompose `store.ts` further if warranted, then close
+backend/auth/legacy-parity, documentation, licensing, provenance, and
+security gaps.
 
 ## Completed milestones
 
@@ -216,12 +221,29 @@ provenance, and security gaps.
 - Current automated root matrix passes again after checkpoint restore:
   unit (97), integration (44), e2e (7), recovery (5), plus all remaining
   listed commands.
+- Closed R54 and R56's specific stated coverage gaps (a route/SDK-method
+  audit across all `tests/` found `ready()`/`version()`/`checkpoints()`
+  had zero direct coverage each, so also closed those in passing):
+  `tests/integration/sse-reconnect.test.ts` drops an SSE connection,
+  restarts the daemon (a genuinely fresh Store and Server against the same
+  durable journal) while durable events keep accumulating, and proves a
+  reconnecting client with `after` catches up on exactly what it missed —
+  no gap, no duplicate. `tests/integration/cli-daemon-lifecycle.test.ts`
+  proves the explicit top-level `ottili-coder resume <run-id>` command's
+  full lifecycle through a real bundled daemon process: one disposable CLI
+  invocation pauses a Run, a separate one resumes it, and the daemon (not
+  either client) is shown to carry the Run's state across that gap.
+  `tests/integration/daemon-api.test.ts` gained direct `ready()`/
+  `version()`/`checkpoints()` coverage. R53/R55 stay UNPROVEN by design —
+  "full endpoint/SDK coverage" is not a bounded target the way these two
+  specific gaps were.
+- Current automated root matrix passes again: unit (97), integration (46),
+  e2e (7), recovery (5), plus all remaining listed commands.
 
 ## Open milestones
 
-- Complete v2 protocol-entity API/SDK/restart roundtrips beyond approvals,
-  SSE reconnect across a dropped/restarted daemon, and CLI `resume` lifecycle
-  coverage (R53–R56).
+- Continue narrowing R53/R55 (full server-API/SDK error-path coverage)
+  opportunistically; not a bounded, discrete task the way R54/R56 were.
 - Prove local backend, remote/hybrid, Ottili adapter/BYOK, and managed-auth
   flows (R45–R49); audit legacy feature parity (R51).
 - Close benchmarking, documentation, licensing, provenance, and security gaps
@@ -231,29 +253,33 @@ provenance, and security gaps.
 
 ## Active implementation
 
-No specific source edit is active in this checkpoint. The checkpoint-restore
-feature (the top item in the prior `NEXT_ACTIONS.md`) is committed and
+No specific source edit is active in this checkpoint. The v2 API coverage
+work (the top item in the prior `NEXT_ACTIONS.md`) is committed and
 locally validated. Resume with the ordered work in `NEXT_ACTIONS.md`,
 starting with pushing this change and re-confirming cross-platform CI on
 the new HEAD.
 
 ## Active validation
 
-Current full matrix: unit 97/97, integration 44/44, e2e 7/7, recovery 5/5;
+Current full matrix: unit 97/97, integration 46/46, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
-pass, all re-run after adding checkpoint restore. The daemon-kill
+pass, all re-run after the v2 API coverage additions. The daemon-kill
 acceptance test (`tests/e2e/daemon-kill-mission.test.ts`), the
 competing-daemon takeover suite
 (`tests/recovery/competing-daemon-takeover.test.ts`),
 `tests/integration/mcp-lsp-composition.test.ts`,
 `tests/integration/worktree-composition.test.ts`, and
 `tests/integration/checkpoint-composition.test.ts` are unchanged and still
-pass; `tests/integration/checkpoint-restore.test.ts` (new, 3 tests) proves
-the restore route's refusal-while-not-paused, real-file-revert-with-undo,
-unknown-checkpoint, and no-restorer-configured cases directly over the
-daemon HTTP API. The daemon-kill mission's first Windows CI run also
-caught a real cross-platform defect (KP-026) that no other platform or test
-could have
+pass; `tests/integration/checkpoint-restore.test.ts` (3 tests) is
+unchanged and still proves the restore route's refusal-while-not-paused,
+real-file-revert-with-undo, unknown-checkpoint, and
+no-restorer-configured cases. New this pass: `tests/integration/sse-reconnect.test.ts`
+(1 test, R54) and a new `resume`-lifecycle case in
+`tests/integration/cli-daemon-lifecycle.test.ts` (R56), plus
+`ready`/`version`/`checkpoints` coverage added to
+`tests/integration/daemon-api.test.ts`. The daemon-kill mission's first
+Windows CI run also caught a real cross-platform defect (KP-026) that no
+other platform or test could have
 found. Historic failures remain recorded in `VALIDATION_LOG.md` as
 remediation provenance, not current failures. Cross-platform CI itself is not
 yet re-confirmed on this HEAD.
@@ -276,9 +302,13 @@ deterministic tests are viable.
 ## Latest important commands/results
 
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
+  build, benchmark, and package smoke passed on 2026-08-19 after closing
+  R54/R56's coverage gaps (unit 97/97, integration 46/46, e2e 7/7,
+  recovery 5/5) — not yet re-confirmed on GitHub Actions.
+- Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after adding
   checkpoint restore (unit 97/97, integration 44/44, e2e 7/7, recovery
-  5/5) — not yet re-confirmed on GitHub Actions.
+  5/5).
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after fixing
   KP-031 (unit 97/97, integration 41/41, e2e 7/7, recovery 5/5).
@@ -328,20 +358,8 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Checkpoint restore is committed, pushed, and cross-platform CI is
-confirmed green (run 32265182592). Work `NEXT_ACTIONS.md` in order
-starting with v2 protocol-entity API/SDK/restart roundtrip coverage
-(R53–R56). A route/SDK-method coverage audit this session found concrete,
-addressable gaps rather than an open-ended target: `GET /v1/ready`,
-`GET /v1/version`, and `GET /v1/runs/:id/checkpoints` (the SDK's
-`client.checkpoints()`) have **zero** direct test coverage anywhere in the
-suite; `listRuns`/`agents`/`agentEvents`/`approvals` each have exactly one
-covering test. R54's stated gap is real and un-covered: no test drops an
-SSE connection, restarts the daemon against the same durable database, and
-proves a reconnecting client with `after`/`Last-Event-ID` catches up on
-events that happened while disconnected (the existing SSE test only proves
-a stream ends cleanly on shutdown, not cross-restart reconnect). R56's gap
-is real too: `ottili-coder resume <run-id>` (the top-level reattach
-command, distinct from `run resume` which un-pauses) has no CLI lifecycle
-acceptance test. Close these concretely rather than chasing exhaustive
-error-path coverage for every route, which is not a bounded target.
+Commit and push the v2 API coverage change (R54/R56 closed, ready/version/
+checkpoints SDK coverage added), re-confirm the cross-platform CI matrix on
+the new HEAD, then work `NEXT_ACTIONS.md` in order starting with proving
+local backend/remote/hybrid/Ottili-adapter/BYOK/managed-auth flows
+(R45–R49). Rerun all final validation after the final source change.

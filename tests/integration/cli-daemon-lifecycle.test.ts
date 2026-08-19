@@ -171,6 +171,86 @@ describe("bundled CLI daemon lifecycle", () => {
       timeout: 10_000,
     });
   });
+
+  // R56: the top-level `resume` command (distinct from `run resume`, which
+  // shares the same underlying daemon effect but never attaches) is the
+  // durable-mission-survives-a-CLI-exit story — a disposable client reattaches
+  // a Run a *different* disposable client paused, through a real bundled
+  // daemon, not a mock.
+  it("resumes a paused Run through a disposable client, distinct from the CLI process that paused it", async () => {
+    const configDirectory = await mkdtemp(join(tmpdir(), "ottili-cli-resume-"));
+    configDirectories.push(configDirectory);
+    const url = `http://127.0.0.1:${await freeLoopbackPort()}`;
+
+    expect(
+      await runCli(
+        [
+          "daemon",
+          "start",
+          "--config-dir",
+          configDirectory,
+          "--url",
+          url,
+          "--wait-ms",
+          "10000",
+          "--json",
+        ],
+        { environment: {}, stdout: new BufferWriter() },
+      ),
+    ).toBe(0);
+
+    const created = new BufferWriter();
+    expect(
+      await runCli(
+        [
+          "run",
+          "Pause and resume this run through separate CLI invocations.",
+          "--workspace",
+          process.cwd(),
+          "--config-dir",
+          configDirectory,
+          "--json",
+        ],
+        { environment: {}, stdout: created },
+      ),
+    ).toBe(0);
+    const runId = created.json<{ readonly run: { readonly id: string } }>().run
+      .id;
+
+    const paused = new BufferWriter();
+    expect(
+      await runCli(
+        ["run", "pause", runId, "--config-dir", configDirectory, "--json"],
+        { environment: {}, stdout: paused },
+      ),
+    ).toBe(0);
+    expect(
+      paused.json<{ readonly run: { readonly status: string } }>().run.status,
+    ).toBe("paused");
+
+    // A disposable client distinct from the one that paused it — the daemon,
+    // not any client process, is what carries the Run forward.
+    const resumed = new BufferWriter();
+    expect(
+      await runCli(
+        ["resume", runId, "--config-dir", configDirectory, "--json"],
+        {
+          environment: {},
+          stdout: resumed,
+        },
+      ),
+    ).toBe(0);
+    expect(
+      resumed.json<{ readonly run: { readonly status: string } }>().run.status,
+    ).toBe("running");
+
+    expect(
+      await runCli(
+        ["daemon", "stop", "--config-dir", configDirectory, "--json"],
+        { environment: {}, stdout: new BufferWriter() },
+      ),
+    ).toBe(0);
+  });
 });
 
 async function freeLoopbackPort(): Promise<number> {
