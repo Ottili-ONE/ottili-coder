@@ -60,6 +60,10 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | Decomposed `packages/control-plane/src/store.ts` into `store/{errors,types,mappers,row-helpers}.ts` (KP-024, ADR-014) | Mechanical extraction only; every extracted function's sole dependency (`database`) became an explicit parameter. Verified by full typecheck plus the entire test matrix, including the real-`SIGKILL` daemon-kill mission and the competing-daemon-takeover suite, with zero behavior change. |
 | 2026-08-19 | Full root matrix after the KP-024/KP-026 fixes: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package, bench | PASS — unit 90/90; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
+| 2026-08-19 | GitHub Actions matrix on `main` for commit `d34e1b7` (KP-024/026 fixes) | FAIL — Ubuntu and macOS passed; Windows failed `pnpm test:e2e` with `ERR_SQLITE_ERROR errcode 1546` opening a fresh SQLite connection right after the first (SIGKILLed) daemon process exited. |
+| 2026-08-19 | Root-caused as KP-027 and fixed with a bounded, synchronous retry in `SqliteDatabase`'s constructor for the `SQLITE_IOERR`/`BUSY`/`LOCKED`/`CANTOPEN` result-code family (ADR-016) | `pnpm exec vitest run tests/unit/control-plane.test.ts` — PASS, 13/13, including two new tests proving `isTransientOpenError` retries exactly the CI-observed code (and its IOERR siblings) and never masks an unrelated or non-transient SQLite error. |
+| 2026-08-19 | Full root matrix after KP-027: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 92/92; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+
 ## Still-required direct validation
 
 The local matrix is green, the delayed real provider/tool competing-daemon

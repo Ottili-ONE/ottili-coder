@@ -77,6 +77,13 @@ documentation, licensing, provenance, and security gaps.
   `tests/support/fs-cleanup.ts` (`removeTempDirectory`, `maxRetries: 10`) for
   a Windows-only SQLite temp-directory `EBUSY` teardown race, applied across
   every test file with the same fragile cleanup pattern.
+- Fixed KP-027: opening a fresh `SqliteDatabase` immediately after a
+  `SIGKILL`ed process held the same file could fail on Windows with a
+  transient `disk I/O error` (`SQLITE_IOERR_TRUNCATE`) — a real production
+  daemon-restart-after-crash risk, not just a test artifact. Fixed with a
+  bounded, synchronous retry in the constructor for the whole
+  IOERR/BUSY/LOCKED/CANTOPEN family (ADR-016), unit tested directly against
+  the CI-observed error code.
 - Fixed KP-026, a real cross-platform defect the daemon-kill mission's first
   Windows CI run caught: `new URL("C:\\Users\\x")` succeeds with `protocol`
   `"c:"` (a single letter followed by `:` is syntactically a valid URL
@@ -106,7 +113,7 @@ documentation, licensing, provenance, and security gaps.
   approval), and `execute_command` swallowing stdout on failure so an agent
   could not see why a test runner failed.
 - Current automated root matrix passes: lint, format, check:eol,
-  check:boundaries, typecheck, unit (90), integration (33), e2e (7), recovery
+  check:boundaries, typecheck, unit (92), integration (33), e2e (7), recovery
   (5), build, benchmark, and package smoke.
 
 ## Open milestones
@@ -131,7 +138,7 @@ HEAD.
 
 ## Active validation
 
-Current full matrix: unit 90/90, integration 33/33, e2e 7/7, recovery 5/5;
+Current full matrix: unit 92/92, integration 33/33, e2e 7/7, recovery 5/5;
 lint/format/check:eol/check:boundaries/typecheck/build/bench/package smoke
 pass. The daemon-kill acceptance test (`tests/e2e/daemon-kill-mission.test.ts`)
 and the competing-daemon takeover suite

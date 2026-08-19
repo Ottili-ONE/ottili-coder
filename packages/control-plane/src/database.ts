@@ -10,18 +10,61 @@ export interface SqliteDatabaseOptions {
   readonly migrationTargetVersion?: 1 | 2 | 3 | 4 | 5;
 }
 
+/**
+ * SQLite result codes worth retrying a fresh open against. All are
+ * `SQLITE_IOERR` sub-codes (primary code 10; extended codes are
+ * `10 | (n << 8)`) plus `SQLITE_BUSY`/`SQLITE_LOCKED`/`SQLITE_CANTOPEN`. A
+ * process that was just killed (`SIGKILL`, no `close()`) can leave Windows
+ * holding the file's OS-level handle for a brief window after the process
+ * itself has already exited; a fresh open racing that window fails with one
+ * of these codes even though nothing in this process is contending for it.
+ */
+export function isTransientOpenError(error: unknown): boolean {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    (error as { readonly code?: unknown }).code !== "ERR_SQLITE_ERROR"
+  ) {
+    return false;
+  }
+  const errcode = (error as { readonly errcode?: unknown }).errcode;
+  if (typeof errcode !== "number") return false;
+  const primary = errcode & 0xff;
+  return primary === 10 || primary === 5 || primary === 6 || primary === 14;
+}
+
+/** Portable synchronous sleep; `node:sqlite`'s API is synchronous throughout. */
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 export class SqliteDatabase {
   private readonly connection: DatabaseSync;
   private readonly migrationTargetVersion: 1 | 2 | 3 | 4 | 5;
 
   public constructor(path: string, options: SqliteDatabaseOptions = {}) {
-    this.connection = new DatabaseSync(path);
     this.migrationTargetVersion =
       options.migrationTargetVersion ?? LATEST_SCHEMA_VERSION;
+    this.connection = SqliteDatabase.openWithRetry(path);
     this.connection.exec("PRAGMA journal_mode = WAL");
     this.connection.exec("PRAGMA foreign_keys = ON");
     this.connection.exec("PRAGMA busy_timeout = 5000");
     this.migrate();
+  }
+
+  private static openWithRetry(path: string): DatabaseSync {
+    const maxAttempts = 8;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return new DatabaseSync(path);
+      } catch (error: unknown) {
+        if (attempt >= maxAttempts || !isTransientOpenError(error)) {
+          throw error;
+        }
+        sleepSync(Math.min(500, 25 * 2 ** attempt));
+      }
+    }
   }
 
   public close(): void {

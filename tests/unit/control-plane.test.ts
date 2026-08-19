@@ -11,6 +11,7 @@ import {
   RunStore,
   LATEST_SCHEMA_VERSION,
   SqliteDatabase,
+  isTransientOpenError,
   type Clock,
 } from "@ottili/control-plane";
 import { describe, expect, it } from "vitest";
@@ -51,6 +52,36 @@ const safeTool: Pick<
   recovery: "retry",
   sideEffectClass: "workspace",
 };
+
+describe("transient SQLite open-error classification", () => {
+  // A process killed with SIGKILL never calls close(), so Windows can hold
+  // the file's OS-level handle for a brief window after the process itself
+  // has already exited. A daemon restart racing that window must retry
+  // rather than fail outright — but only for the specific errors that window
+  // actually produces, never for a genuine schema/argument/corruption error.
+  it("retries exactly the SQLite result codes a just-killed process leaves behind", () => {
+    const transient = [1546, 266, 522, 778, 1034, 1290, 1802, 5, 6, 14];
+    for (const errcode of transient) {
+      expect(isTransientOpenError({ code: "ERR_SQLITE_ERROR", errcode })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("does not retry an unrelated or non-transient SQLite error", () => {
+    expect(
+      isTransientOpenError({ code: "ERR_SQLITE_ERROR", errcode: 1 }), // SQLITE_ERROR
+    ).toBe(false);
+    expect(
+      isTransientOpenError({ code: "ERR_SQLITE_ERROR", errcode: 11 }), // SQLITE_CORRUPT
+    ).toBe(false);
+    expect(isTransientOpenError(new TypeError("not a SQLite error"))).toBe(
+      false,
+    );
+    expect(isTransientOpenError(undefined)).toBe(false);
+    expect(isTransientOpenError({ code: "ERR_SQLITE_ERROR" })).toBe(false);
+  });
+});
 
 describe("RunStore durable control plane", () => {
   it("appends ordered events, preserves requirements, and gates proof on strong evidence", () => {

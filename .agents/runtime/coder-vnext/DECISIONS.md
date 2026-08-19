@@ -196,3 +196,26 @@ quietly acted on the wrong directory. This was undetected until
 `tests/e2e/daemon-kill-mission.test.ts` ran on Windows CI for the first time
 and failed reproducing a test file that only exists in the fixture, not the
 product checkout.
+
+## ADR-016 — SQLite open retries transient Windows IOERR, synchronously
+
+**Decision:** `SqliteDatabase`'s constructor retries `new DatabaseSync(path)`
+(bounded, exponential backoff, capped at 500 ms per attempt, 8 attempts) when
+the failure is `ERR_SQLITE_ERROR` with a result code in the `SQLITE_IOERR`
+family, or `SQLITE_BUSY`/`SQLITE_LOCKED`/`SQLITE_CANTOPEN`. The wait between
+attempts is a synchronous `Atomics.wait` sleep, since `node:sqlite`'s API —
+and therefore `SqliteDatabase`'s constructor, and everything built on top of
+it (`RunStore`, `DurableDaemon`) — is synchronous throughout; making the
+constructor async would cascade through the whole control plane for a fix
+that only needs to cover a few hundred milliseconds.
+
+**Why:** The daemon-kill acceptance test's first Windows CI run (immediately
+after the KP-026 fix) failed with `disk I/O error` / `errcode: 1546`
+(`SQLITE_IOERR_TRUNCATE`) when opening a fresh connection to the same file a
+just-`SIGKILL`ed process had held. `SIGKILL` gives a process no chance to call
+`close()`, and Windows can hold the file's OS-level handle for a brief window
+after the process has already exited — a `DatabaseSync` open racing that
+window fails even though nothing in the _new_ process is contending for the
+file. This is not only a test artifact: it is exactly the shape of a real
+production daemon restart after a Windows crash, so the fix belongs in the
+product's `SqliteDatabase`, not in the test.
