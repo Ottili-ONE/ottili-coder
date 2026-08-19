@@ -91,6 +91,7 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | **GitHub Actions matrix on `main`, commit `5609b69` (checkpoint composition, run 32261784514)** | **PASS — Ubuntu, macOS, and Windows all green together**, including the exact test that failed on the immediately preceding commit — `KP-032` did not reproduce. |
 | 2026-08-19 | Fixed KP-031: `RunCoordinator.sandboxForTurn` grants a delegate's worktree as writable ephemerally, per turn (ADR-020). Deliberately narrowed `tests/integration/worktree-composition.test.ts`'s sandbox to grant only the primary workspace (removed the `parent`-directory workaround) and ran it 3 consecutive times | PASS — 2/2 every run, ~0.79s each, proving the automatic per-turn grant (not a broader pre-configured one) is what lets the delegate's write succeed. |
 | 2026-08-19 | Full root matrix after the KP-031 fix: lint, typecheck, format:check, check:eol, check:boundaries, test, test:integration, test:recovery, test:e2e, build, test:package | PASS — unit 97/97; integration 41/41; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+| 2026-08-19 | **GitHub Actions matrix on `main`, commit `916a081` (KP-031 fix, run 32263162700)** | **PASS — Ubuntu, macOS, and Windows all green together.** `KP-032` has now not recurred on either of the two runs since it was first observed. |
 
 ## Still-required direct validation
 

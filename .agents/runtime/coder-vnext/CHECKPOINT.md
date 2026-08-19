@@ -10,17 +10,13 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
 green; MCP/LSP, worktree, and checkpoint composition are all closed with
 direct evidence (`KP-015` fully resolved), and `KP-031` (sandbox
-`writableRoots` not widening to a delegate's worktree) is now fixed
-(ADR-020) rather than left as a documented gap. GitHub Actions run
-32261784514 (commit `5609b69`) confirmed Ubuntu/macOS/Windows all pass
-together on the checkpoint composition change, but that predates the
-KP-031 fix below, so CI must be re-confirmed on the new HEAD. An
-intervening doc-only commit (`9a43323`, zero source changes) failed once
-on Ubuntu with an unexplained `LeaseFencedError` in an unrelated
-pre-existing test (`multi-agent-graph.test.ts`'s restart test); it did not
-reproduce on the very next run and is recorded as `KP-032`,
-open/monitoring rather than fixed on a guess. The Requirement Ledger still
-has open `UNPROVEN` entries with direct final audits remaining.
+`writableRoots` not widening to a delegate's worktree) is fixed (ADR-020).
+GitHub Actions run 32263162700 (commit `916a081`) confirmed
+Ubuntu/macOS/Windows all pass together on the KP-031 fix itself — the
+intervening doc-only commit (`9a43323`) that failed once on Ubuntu with an
+unexplained `LeaseFencedError` (`KP-032`, open/monitoring) has not
+recurred on either of the two subsequent runs. The Requirement Ledger
+still has open `UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
@@ -309,7 +305,15 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the KP-031 fix, re-confirm the cross-platform CI matrix on
-the new HEAD, then work `NEXT_ACTIONS.md` in order starting with building a
-`checkpoint restore` CLI/API/SDK flow, and rerun all final validation after
-the final source change.
+The KP-031 fix is committed, pushed, and cross-platform CI is confirmed
+green (run 32263162700). Work `NEXT_ACTIONS.md` in order starting with
+building a `checkpoint restore` CLI/API/SDK flow: `GitService.readCheckpointSnapshot`
+already reconstructs a full `GitCheckpointSnapshot` from just a ref string
+(the `restoreWorkspaceSnapshot` it feeds already accepts a bare ref), so the
+durable `workspace_ref` this session's checkpoint composition already
+stores is sufficient — no prerequisite fix to the create side is needed.
+Scope the first increment to a workspace-only restore (revert files to the
+checkpoint's snapshot; leave the Task/Agent Graph and durable history
+untouched) using the existing `run pause`/`run resume` primitives to
+safely sequence around the coordinator, rather than attempting full
+event-replay state reconstruction in the same pass.
