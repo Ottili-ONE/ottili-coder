@@ -507,7 +507,7 @@ bolt onto this increment. R48 is therefore left UNPROVEN, honestly,
 tracked as `KP-035`, with its own full lifecycle contract tests added
 (start/health/execute/cancel/cleanup, abort-via-signal) so the abstraction
 itself is at least proven correct in isolation. R49's narrower, literal
-wording — deterministic remote/hybrid *contract tests* — does not depend
+wording — deterministic remote/hybrid _contract tests_ — does not depend
 on that composition question at all: new tests against a fake
 `RemoteExecutionTransport` and fake local/remote backends prove
 `RemoteExecutionBackend`'s full delegation and `HybridExecutionBackend`'s
