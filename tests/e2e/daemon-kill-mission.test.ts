@@ -1,8 +1,9 @@
 import { createServer, type Server } from "node:http";
 import { createServer as createTcpServer } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import { RunStore, SqliteDatabase } from "@ottili/control-plane";
 import type { RunId } from "@ottili/protocol";
@@ -389,9 +390,7 @@ describe("long-horizon coding mission across a daemon kill", () => {
     const provider = await startProviderServer();
     cleanups.push(provider.close);
     const configDirectory = await mkdtemp(join(tmpdir(), "ottili-mission-"));
-    cleanups.push(async () =>
-      rm(configDirectory, { force: true, recursive: true }),
-    );
+    cleanups.push(async () => removeTempDirectory(configDirectory));
     const databasePath = join(configDirectory, "coder.db");
 
     const daemonEnvironment = {

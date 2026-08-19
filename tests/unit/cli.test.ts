@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import type { Mission, MissionId, Run, RunId } from "@ottili/protocol";
 import {
@@ -19,10 +20,7 @@ afterEach(async () => {
   await Promise.all(
     temporaryDirectories
       .splice(0)
-      .map(
-        async (directory) =>
-          await rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => await removeTempDirectory(directory)),
   );
 });
 

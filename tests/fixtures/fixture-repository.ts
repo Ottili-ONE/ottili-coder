@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile } from "node:fs/promises";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +36,7 @@ export async function createRealisticRepositoryFixture(): Promise<RealisticRepos
 
   return {
     root,
-    cleanup: async () => await rm(root, { force: true, recursive: true }),
+    cleanup: async () => await removeTempDirectory(root),
     git: async (args) => await runGit(root, args),
     read: async (relativePath) =>
       await readFile(join(root, relativePath), "utf8"),

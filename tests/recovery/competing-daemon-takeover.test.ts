@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import {
   LeaseFencedError,
@@ -26,9 +27,7 @@ afterEach(async () => {
   await Promise.all(
     directories
       .splice(0)
-      .map(async (directory) =>
-        rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => removeTempDirectory(directory)),
   );
 });
 

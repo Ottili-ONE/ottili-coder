@@ -1,6 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
+
 import {
   LocalExecutionBackend,
   importLegacyConfig,
@@ -14,10 +16,7 @@ afterEach(async () => {
   await Promise.all(
     temporaryDirectories
       .splice(0)
-      .map(
-        async (directory) =>
-          await rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => await removeTempDirectory(directory)),
   );
 });
 

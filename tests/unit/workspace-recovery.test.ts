@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import type { ToolDefinition } from "@ottili/protocol";
 import {
@@ -55,9 +56,7 @@ afterEach(async () => {
   await Promise.all(
     temporaryDirectories
       .splice(0)
-      .map(async (directory) =>
-        rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => removeTempDirectory(directory)),
   );
 });
 

@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import { RunStore, SqliteDatabase, type Clock } from "@ottili/control-plane";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,10 +14,7 @@ afterEach(async () => {
   await Promise.all(
     directories
       .splice(0)
-      .map(
-        async (directory) =>
-          await rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => await removeTempDirectory(directory)),
   );
 });
 

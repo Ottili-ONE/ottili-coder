@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import { RunScheduler, RunStore, SqliteDatabase } from "@ottili/control-plane";
 import type { RunId, TaskId } from "@ottili/protocol";
@@ -17,9 +18,7 @@ afterEach(async () => {
   await Promise.all(
     directories
       .splice(0)
-      .map(async (directory) =>
-        rm(directory, { force: true, recursive: true }),
-      ),
+      .map(async (directory) => removeTempDirectory(directory)),
   );
 });
 
@@ -263,8 +262,12 @@ describe("durable Task Graph and Agent Graph execution", () => {
         ]),
       ),
       // A crashed daemon stops renewing; the successor may only take over once
-      // that lease has actually expired.
-      { executorId: "before-restart", leaseTtlMs: 40 },
+      // that lease has actually expired. The TTL still has to stay well above
+      // the scheduler's own heartbeat interval (`floor(ttl / 3)`, min 1ms) —
+      // CI runners (Windows in particular) can stall the single-threaded event
+      // loop for tens of milliseconds under load, which would otherwise let
+      // the lease expire mid-turn and fail a write the turn itself is making.
+      { executorId: "before-restart", leaseTtlMs: 500 },
     );
     await firstScheduler.tick();
     await firstScheduler.tick();
@@ -279,7 +282,7 @@ describe("durable Task Graph and Agent Graph execution", () => {
     expect(firstStore.getTask(exploreId)?.ownerAgentId).toBe(created.agent.id);
     // Simulate a crash: the process disappears without settling anything.
     firstStore.close();
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     const secondStore = new RunStore(new SqliteDatabase(path));
     // Dependencies and readiness are persisted, not rebuilt from a replay.

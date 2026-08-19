@@ -49,6 +49,11 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | `pnpm exec vitest run tests/e2e/daemon-kill-mission.test.ts` (real bundled daemon, real repo fixture, real `SIGKILL`, 90 s wall clock) | PASS — 1/1: plans a durable Task Graph, reproduces a failing test, survives `SIGKILL`, is resumed by a second daemon process, repairs the source file on disk, re-verifies with a real `node --test` run, and completes only after strong evidence and an independent verifier audit. Surfaced and fixed a resource-scope namespacing defect (every sandbox `writableRoots` entry was unmatchable) and a swallowed-stdout defect in `execute_command` failures. |
 | 2026-08-19 | Full root matrix after the composition/hardening milestone: install, lint, format, check:eol, check:boundaries, typecheck, test, integration, recovery, e2e, build, package, bench | PASS — unit 89/89; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
 
+| 2026-08-19 | GitHub Actions matrix on `main` for commits `93076d8`/`8f5f0b7` (external evidence) | FAIL — `93076d8` failed `format:check` on all three platforms (fixed by the immediate `8f5f0b7` follow-up); `8f5f0b7` then failed only on Windows in `tests/integration/multi-agent-graph.test.ts`'s restart test, plus a Windows-only `EBUSY` on SQLite temp-directory cleanup. |
+| 2026-08-19 | Root-caused the Windows-only failure via `gh api .../jobs/{id}/logs` | Diagnosed as KP-025: a 40 ms lease TTL let the lease expire mid-`plan_tasks` call under CI load, dropping a task silently through nested `LeaseFencedError` handling; `fs.rm`'s zero-retry default made the temp-directory teardown flaky on Windows independently. |
+| 2026-08-19 | `pnpm exec vitest run tests/integration/multi-agent-graph.test.ts` after raising the TTL to 500 ms and adding `removeTempDirectory` | PASS — 3/3. |
+| 2026-08-19 | Full root matrix after the KP-025 fix: lint, typecheck, format, check:eol, check:boundaries, test, integration, recovery, e2e, build, package | PASS — unit 89/89; integration 33/33; e2e 7/7; recovery 5/5; all remaining listed commands passed. |
+
 ## Still-required direct validation
 
 The local matrix is green, cross-platform CI was confirmed green on an

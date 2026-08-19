@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import { OttiliClient } from "@ottili/sdk";
 
@@ -20,7 +21,7 @@ afterEach(async () => {
   await Promise.all(
     configDirectories.splice(0).map(async (configDirectory) => {
       await stopDaemon({ configDirectory }).catch(() => undefined);
-      await rm(configDirectory, { force: true, recursive: true });
+      await removeTempDirectory(configDirectory);
     }),
   );
 });

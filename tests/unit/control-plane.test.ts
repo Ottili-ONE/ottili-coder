@@ -1,7 +1,9 @@
 import type { ToolDefinition } from "@ottili/protocol";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTempDirectory } from "../support/fs-cleanup.js";
+
 import {
   LeaseFencedError,
   ResourceLockConflictError,
@@ -324,7 +326,7 @@ describe("RunStore durable control plane", () => {
       expect(versions.map((row) => row.version)).toEqual(schemaVersionLadder());
       upgraded.close();
     } finally {
-      await rm(directory, { force: true, recursive: true });
+      await removeTempDirectory(directory);
     }
   });
 
@@ -375,7 +377,7 @@ describe("RunStore durable control plane", () => {
       expect(upgraded.listEvents(created.run.id).length).toBe(eventCount);
       upgraded.close();
     } finally {
-      await rm(directory, { force: true, recursive: true });
+      await removeTempDirectory(directory);
     }
   });
 
