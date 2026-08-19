@@ -20,12 +20,11 @@ UNPROVEN → PROVEN except R48, which stays UNPROVEN by deliberate,
 documented decision (`KP-035`/ADR-022: composing `LocalExecutionBackend`
 into `execute_command`'s real dispatch path needs a dependency-graph
 change out of proportion to this increment). GitHub Actions run
-32266839233 (commit `680fe5c`) confirmed Ubuntu/macOS/Windows all pass
-together on the v2 API coverage change, but that predates the R45–R49
-change below — CI must be re-confirmed on the new HEAD. `KP-032` (an
-unexplained `LeaseFencedError` on a doc-only commit) has not recurred on
-any run since it was first observed. The Requirement Ledger still has
-open `UNPROVEN` entries with direct final audits remaining.
+32269246053 (commit `e5ce78e`) confirmed Ubuntu/macOS/Windows all pass
+together on the R45–R49 change itself. `KP-032` (an unexplained
+`LeaseFencedError` on a doc-only commit) has not recurred on any run
+since it was first observed. The Requirement Ledger still has open
+`UNPROVEN` entries with direct final audits remaining.
 
 ## Current milestone
 
@@ -326,11 +325,17 @@ deterministic tests are viable.
 
 ## Latest important commands/results
 
+- GitHub Actions run 32269246053 (commit `e5ce78e`, 2026-08-19) confirmed
+  Ubuntu, macOS, and Windows all pass together on the R45–R49 change. The
+  immediately preceding commit (`205d5da`, the R45–R49 source change itself)
+  failed `format:check` on Ubuntu/macOS: three WUID docs edited via a python
+  workaround for the Edit tool's whitespace-matching on padded markdown
+  tables were never run through Prettier before committing. Fixed with
+  `prettier --write` (pure formatting, zero content change) in `e5ce78e`.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after proving
   R45–R49 and deleting confirmed-dead `packages/integrations/src/provider.ts`
-  (unit 106/106, integration 46/46, e2e 7/7, recovery 5/5) — not yet
-  re-confirmed on GitHub Actions.
+  (unit 106/106, integration 46/46, e2e 7/7, recovery 5/5).
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after closing
   R54/R56's coverage gaps (unit 97/97, integration 46/46, e2e 7/7,
