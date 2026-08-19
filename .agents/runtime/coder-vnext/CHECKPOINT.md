@@ -9,11 +9,13 @@ and durable long-horizon execution runtime described in the rebuild mission.
 
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
 green, MCP/LSP and worktree composition are both closed with direct evidence,
-and GitHub Actions run 32256548228 (commit `afa6ce0`) confirmed
-Ubuntu/macOS/Windows all pass together — but that run predates the worktree
-composition change below, so it must be re-confirmed on the new HEAD, and the
-Requirement Ledger still has open `UNPROVEN` entries with direct final audits
-remaining.
+and GitHub Actions run 32260314723 (commit `0157a78`) confirmed
+Ubuntu/macOS/Windows all pass together on the worktree composition change —
+getting there cost three extra round-trips (KP-029/KP-030, unrelated to
+worktrees; then KP-031, a real canonicalization defect in the worktree test's
+own sandbox config, root-caused and fixed after one unnecessary speculative
+attempt). The Requirement Ledger still has open `UNPROVEN` entries with
+direct final audits remaining.
 
 ## Current milestone
 
@@ -225,14 +227,20 @@ deterministic tests are viable.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
   isolated worktrees for delegated agents into the live runtime (unit 97/97,
-  integration 38/38, e2e 7/7, recovery 5/5) — not yet re-confirmed on GitHub
-  Actions.
+  integration 38/38, e2e 7/7, recovery 5/5).
 - GitHub Actions run 32256548228 (commit `afa6ce0`, 2026-08-19) passed
   Ubuntu, macOS, and Windows together after fixing KP-029 (a Windows
   `file://` URI defect in the new MCP/LSP composition tests, not the
   product) and KP-030 (a second short-lease-TTL CI flake on Ubuntu, same
-  class as KP-025) — this run predates the worktree composition change above
-  and must be re-confirmed on the new HEAD.
+  class as KP-025).
+- GitHub Actions run 32260314723 (commit `0157a78`, 2026-08-19) passed
+  Ubuntu, macOS, and Windows together on the worktree composition change,
+  after KP-031: the worktree test's own `sandbox.writableRoots` was built
+  from a raw, uncanonicalized temp path while `GitWorktreeProvisioner`
+  always reports Git's canonical path, silently denying the delegate's
+  write on macOS/Windows (same class as ADR-009/KP-019/KP-029). One
+  speculative fix (explicit `mkdir`) did not address it; root-causing it
+  directly via stronger test diagnostics did.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after the
   composition/hardening milestone, the KP-024/025/026 fixes, and the partial

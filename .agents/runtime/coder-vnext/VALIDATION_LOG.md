@@ -84,14 +84,16 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | GitHub Actions matrix on `main`, commit `b36e2c6` (worktree composition, run 32258845491) | FAIL — macOS and Windows only (Ubuntu passed): `worktree-composition.test.ts`'s restart test failed `expected false to be true` — the delegate's write never appeared in its worktree. |
 | 2026-08-19 | Speculative fix attempt (commit `7db48a5`, explicit `mkdir` before `git worktree add`) plus stronger test diagnostics; GitHub Actions run 32259694978 | FAIL — identical symptom on macOS and Windows. The new diagnostic (the write_file tool's own event, plus the resolved `worktreePath` in the failure message) proved the write's own `tool.call_finished` event was NOT the delegate's — it was denied by policy before ever producing one, and the `.at(-1)` check had picked up an earlier, unrelated success. |
 | 2026-08-19 | Root-caused KP-031 directly: the fixture's `sandbox.writableRoots` was built from the _raw_, uncanonicalized `os.tmpdir()` path, while `GitWorktreeProvisioner` always reports a worktree's path the way Git does — canonical. On macOS/Windows those differ (`/private/var/...`, or a resolved short-name), so the namespaced scope for the delegate's write never prefix-matched the grant and was silently denied — the same class as ADR-009/KP-019/KP-029, this time in a fixture's sandbox config. Fixed by canonicalizing the fixture's `parent` directory once at the source; local run confirms the write_file event checked really is the delegate's own (`success: true`) and lands at the expected path. | PASS — 2/2 locally, 3 consecutive runs. |
+| 2026-08-19 | **GitHub Actions matrix on `main`, commit `0157a78` (KP-031 canonicalization fix, run 32260314723)** | **PASS — Ubuntu, macOS, and Windows all green together**, confirming worktree composition (R37) on a real cross-platform matrix after four round-trips (two real defects, KP-029/KP-030, unrelated to worktrees; one speculative non-fix; one confirmed root-caused fix, KP-031). |
 
 ## Still-required direct validation
 
 The local matrix is green (now including MCP/LSP and worktree composition
 evidence), the delayed real provider/tool competing-daemon takeover is proven
-directly, and GitHub Actions run 32256548228 (commit `afa6ce0`) confirmed
-Ubuntu, macOS, and Windows all pass together — but that run predates the
-worktree composition change, so cross-platform CI must be re-confirmed on the
+directly, and GitHub Actions run 32260314723 (commit `0157a78`) confirmed
+Ubuntu, macOS, and Windows all pass together on the worktree composition
+change — but that run predates checkpoint composition, so cross-platform CI
+must be re-confirmed again on the
 new HEAD before it counts as platform evidence for this feature. Four real
 cross-platform defects (KP-025 through KP-028) were found and fixed getting to
 an earlier green run, each one only reachable through a real Windows CI run —
