@@ -17,6 +17,7 @@ import { createMcpTools, LspServerManager } from "@ottili/runtime";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { removeTempDirectory } from "../support/fs-cleanup.js";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -259,7 +260,12 @@ describe("durable LSP tools and diagnostics", () => {
         .get("lsp_diagnostics")
         ?.execute({ path: "money.ts" });
       expect(diagnosticsResult?.output).toContain("Unused variable");
-      expect(connection.opened).toEqual([`file://${workspace}/money.ts`]);
+      // The product builds this URI with `pathToFileURL`, not string
+      // concatenation: on Windows that is `file:///C:/...` with percent
+      // encoding, not the raw drive path glued onto a `file://` prefix.
+      expect(connection.opened).toEqual([
+        pathToFileURL(join(workspace, "money.ts")).href,
+      ]);
 
       const symbolsResult = await tools
         .get("lsp_document_symbols")

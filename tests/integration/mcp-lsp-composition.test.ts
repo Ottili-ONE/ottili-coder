@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { removeTempDirectory } from "../support/fs-cleanup.js";
 
 import type {
@@ -152,6 +153,17 @@ async function fixtureWorkspace(): Promise<string> {
   return directory;
 }
 
+/**
+ * `pathToFileURL`/`fileURLToPath`, not string concatenation: on Windows a
+ * raw drive path glued after `file://` has too few slashes and is misread as
+ * an authority component (`file://D:\x` → host `D:`), the same class of bug
+ * as ADR-015/ADR-016. `RunContextCompiler` parses `mission.workspaceUri`
+ * with the real `fileURLToPath`, so the fixture must build a real URI.
+ */
+function workspaceUriFor(path: string): string {
+  return pathToFileURL(path).href;
+}
+
 const deployToolCall = {
   input: { target: "staging" },
   name: "mcp.deploy-server.deploy",
@@ -184,7 +196,7 @@ function mcpScheduler(
       tools: async ({ workspaceUri: uri }) => {
         const merged = new ToolRegistry();
         for (const registry of [
-          createWorkspaceTools({ workspace: uri.replace("file://", "") }),
+          createWorkspaceTools({ workspace: fileURLToPath(uri) }),
           await createMcpTools(supervisor),
         ]) {
           for (const definition of registry.list()) merged.register(definition);
@@ -223,7 +235,7 @@ describe("MCP and LSP composed into a real durable turn", () => {
     const created = store.createRun({
       permissions: { mode: "standard" },
       prompt: "Deploy through the configured MCP server.",
-      workspaceUri: `file://${workspace}`,
+      workspaceUri: workspaceUriFor(workspace),
     });
     const scheduler = mcpScheduler(store, supervisor, "mcp-deny-test", 1);
 
@@ -261,7 +273,7 @@ describe("MCP and LSP composed into a real durable turn", () => {
         permissions: { mode: "standard" },
         process: { enabled: true },
       },
-      workspaceUri: `file://${workspace}`,
+      workspaceUri: workspaceUriFor(workspace),
     });
     const scheduler = mcpScheduler(store, supervisor, "mcp-approve-test", 2);
 
@@ -312,7 +324,7 @@ describe("MCP and LSP composed into a real durable turn", () => {
       const created = store.createRun({
         permissions: { mode: "standard" },
         prompt: "Check diagnostics for app.ts.",
-        workspaceUri: `file://${workspace}`,
+        workspaceUri: workspaceUriFor(workspace),
       });
       const provider = new ScriptedProvider([
         {
@@ -334,7 +346,7 @@ describe("MCP and LSP composed into a real durable turn", () => {
           model: "deterministic",
           provider,
           tools: ({ workspaceUri: uri }) =>
-            lspManager.createTools(uri.replace("file://", "")),
+            lspManager.createTools(fileURLToPath(uri)),
         }),
         { executorId: "lsp-compose-test", leaseTtlMs: 60_000 },
       );
