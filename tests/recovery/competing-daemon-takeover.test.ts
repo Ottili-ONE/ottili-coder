@@ -292,7 +292,7 @@ describe("competing daemon takeover", () => {
     const staleLease = firstStore.acquireLease({
       executorId: "daemon-a",
       runId,
-      ttlMs: 40,
+      ttlMs: 500,
     });
     const staleAction = firstStore.claimContinuation(staleLease);
     expect(staleAction).toBeDefined();
@@ -310,7 +310,14 @@ describe("competing daemon takeover", () => {
     await held.started;
 
     // Daemon A is inside a provider call and its lease expires unrenewed.
-    await new Promise((resolve) => setTimeout(resolve, 90));
+    // `execute()` checks the lease before ever reaching `held.started` (via
+    // `recoverGraphWork`), so the TTL must be generous enough for that first
+    // check to reliably still find it valid on a loaded CI runner — a 40 ms
+    // TTL raced that check itself and hung `await held.started` forever when
+    // it lost, the same class of flake as KP-025. The wait below must still
+    // exceed the TTL by a comfortable margin so the lease has genuinely
+    // expired by the time the successor takes over.
+    await new Promise((resolve) => setTimeout(resolve, 600));
     const secondStore = new RunStore(new SqliteDatabase(path));
     const successor: RunLease = secondStore.acquireLease({
       executorId: "daemon-b",

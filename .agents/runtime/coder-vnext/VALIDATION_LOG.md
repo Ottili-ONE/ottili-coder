@@ -75,6 +75,9 @@ evidence of fixed defects, not as claims about later source.
 | 2026-08-19 | GitHub Actions matrix on `main`, commit `4e476cd` (MCP/LSP composition, run 32255478298) | FAIL — Windows only: `tests/unit/mcp-lsp-tools.test.ts` asserted a raw string-concatenated `file://` URI instead of the product's actual `pathToFileURL(...).href` output. Ubuntu and macOS passed. |
 | 2026-08-19 | Fixed KP-029 (both new test fixtures built `file://` URIs by string concatenation instead of `pathToFileURL`) and re-ran `pnpm exec vitest run tests/integration/mcp-lsp-composition.test.ts tests/unit/mcp-lsp-tools.test.ts tests/unit/mcp-lsp.test.ts` | PASS — 3/3 integration, 4/4 + 7/7 unit. |
 | 2026-08-19 | Full root matrix after the KP-029 fix: lint, typecheck, format:check, test, test:integration | PASS — unit 97/97; integration 36/36; lint/typecheck/format:check clean. |
+| 2026-08-19 | GitHub Actions matrix on `main`, commit `171d582` (KP-029 fix, run 32256052435) | FAIL — Ubuntu only, unrelated to the commit's own change: `tests/recovery/competing-daemon-takeover.test.ts`'s "lets a successor finish work a killed daemon started" timed out at 15000 ms. Windows and macOS passed (confirming the KP-029 fix itself was correct). |
+| 2026-08-19 | Fixed KP-030 (a second short-lease-TTL flake, same class as KP-025) and ran `pnpm exec vitest run tests/recovery/competing-daemon-takeover.test.ts` three consecutive times | PASS — 4/4 every run, ~0.87s test time each. |
+| 2026-08-19 | Full root matrix after the KP-030 fix: lint, typecheck, format:check, test:recovery | PASS — recovery 5/5; lint/typecheck/format:check clean. |
 
 ## Still-required direct validation
 
