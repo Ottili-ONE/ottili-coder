@@ -10,11 +10,14 @@ and durable long-horizon execution runtime described in the rebuild mission.
 ACTIVE — `TRUE_COMPLETE` is not permitted. The local automated matrix is
 green; MCP/LSP, worktree, and checkpoint composition are all closed with
 direct evidence (`KP-015` fully resolved), and GitHub Actions run
-32260314723 (commit `0157a78`) confirmed Ubuntu/macOS/Windows all pass
-together on the worktree composition change — but that run predates
-checkpoint composition below, so it must be re-confirmed on the new HEAD.
-The Requirement Ledger still has open `UNPROVEN` entries with direct final
-audits remaining.
+32261784514 (commit `5609b69`) confirmed Ubuntu/macOS/Windows all pass
+together on the checkpoint composition change. An intervening doc-only
+commit (`9a43323`, zero source changes) failed once on Ubuntu with an
+unexplained `LeaseFencedError` in an unrelated pre-existing test
+(`multi-agent-graph.test.ts`'s restart test); it did not reproduce on the
+very next run and is recorded as `KP-032`, open/monitoring rather than
+fixed on a guess. The Requirement Ledger still has open `UNPROVEN` entries
+with direct final audits remaining.
 
 ## Current milestone
 
@@ -246,7 +249,13 @@ deterministic tests are viable.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
   checkpoints into the live runtime (unit 97/97, integration 41/41, e2e 7/7,
-  recovery 5/5) — not yet re-confirmed on GitHub Actions.
+  recovery 5/5).
+- GitHub Actions run 32261784514 (commit `5609b69`, 2026-08-19) passed
+  Ubuntu, macOS, and Windows together on the checkpoint composition change.
+  The immediately preceding doc-only commit (`9a43323`) failed once on
+  Ubuntu with a `LeaseFencedError` in an unrelated, pre-existing test
+  (`multi-agent-graph.test.ts`'s restart test) that did not reproduce on
+  this run — recorded as `KP-032`, open/monitoring, not fixed on a guess.
 - Root lint, format check, check:eol, typecheck, all test suites, boundaries,
   build, benchmark, and package smoke passed on 2026-08-19 after composing
   isolated worktrees for delegated agents into the live runtime (unit 97/97,
@@ -283,7 +292,7 @@ deterministic tests are viable.
 
 ## Exact resume action
 
-Commit and push the checkpoint composition change, re-confirm the
-cross-platform CI matrix on the new HEAD, then work `NEXT_ACTIONS.md` in
-order starting with deciding a fix for `KP-031`, and rerun all final
-validation after the final source change.
+Checkpoint composition is committed, pushed, and cross-platform CI is
+confirmed green (run 32261784514). Work `NEXT_ACTIONS.md` in order starting
+with deciding a fix for `KP-031`, and rerun all final validation after the
+final source change.
