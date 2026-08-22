@@ -1,8 +1,8 @@
-# Ottili Coder
+# Rooke Code
 
 > Give it a mission. Let it work until the evidence says it is done.
 
-Ottili Coder is an open-source, long-horizon coding-agent runtime. Its central
+Rooke Code is an open-source, long-horizon coding-agent runtime by Rooke AI. Its central
 unit is a durable **Run**, not a terminal session or one model response. A
 daemon owns the Run, records its state and events in SQLite, and exposes a
 versioned HTTP/SSE interface. The CLI and SDK are disposable clients: closing
@@ -131,16 +131,16 @@ and [the migration guide](MIGRATION.md) for legacy configuration import.
 GitHub Action: it builds the bundled daemon/CLI, creates a durable Run
 against the caller's checkout, polls until a terminal status, and fails the
 step if the Run did not complete. Provider credentials come from the calling
-workflow's own environment (e.g. a secret exported as `ANTHROPIC_API_KEY`),
+workflow's own environment (e.g. a secret exported as `OTTILI_API_KEY` or `ANTHROPIC_API_KEY`),
 never from an action input.
 
 ```yaml
-- uses: Ottili-ONE/ottili-coder@main
+- uses: rooke-ai/rooke-code@main
   with:
     prompt: "Fix the failing test in packages/example."
     provider: anthropic
   env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    ANTHROPIC_API_KEY: ${{ secrets.OTTILI_API_KEY }}
 ```
 
 Outputs: `run-id`, `status`, and a one-line `summary`. `.github/workflows/ci.yml`'s
@@ -231,7 +231,7 @@ changes in [CHANGELOG.md](CHANGELOG.md).
 
 ## License and provenance
 
-Ottili Coder is independently implemented and licensed under
+Rooke Code CLI is independently implemented and licensed under
 [Apache-2.0](LICENSE). Research donors are pinned and documented. No Claude
 Code snapshot source was copied, and donor repositories are not embedded in
 this product repository. See [REBUILD_REPORT.md](REBUILD_REPORT.md) for the
